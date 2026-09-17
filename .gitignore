@@ -1,0 +1,38 @@
+# Secrets — never upload
+.env
+.env.*
+!.env.example
+!.env*.example
+*-firebase-adminsdk*.json
+firebase-*.json
+serviceAccountKey.json
+
+# Dependencies and build output
+node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+frontend/dist/
+dist/
+*.h5
+
+# Local DB / datasets / papers (not needed on the VPS)
+*.sqlite3
+backend/emails/
+data of shrimp/
+possible_dataset/
+rrl with data/
+*.docx
+app_root_files/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp

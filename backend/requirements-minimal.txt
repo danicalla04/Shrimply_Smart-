@@ -1,0 +1,13 @@
+Django==4.2.16
+djangorestframework==3.16.1
+django-cors-headers==4.9.0
+python-dotenv==1.0.1
+requests==2.32.5
+firebase-admin==6.4.0
+PyMySQL==1.1.1
+asgiref==3.10.0
+tzdata==2025.2
+
+# Optional (only if you need ML features locally, don't install unless required):
+# numpy==1.26.4
+# pandas==2.2.3

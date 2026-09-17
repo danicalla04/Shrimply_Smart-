@@ -1,0 +1,82 @@
+/* Force black text across the History Overview section */
+.history-overview,
+.history-overview h1,
+.history-overview h2,
+.history-overview h3,
+.history-overview h4,
+.history-overview h5,
+.history-overview h6,
+.history-overview p,
+.history-overview span,
+.history-overview label,
+.history-overview small,
+.history-overview strong,
+.history-overview em,
+.history-overview th,
+.history-overview td,
+.history-overview button,
+.history-overview div {
+    color: #000 !important;
+}
+
+.history-overview input,
+.history-overview select,
+.history-overview textarea {
+    color: #000 !important;
+}
+
+.history-overview input::placeholder,
+.history-overview textarea::placeholder {
+    color: #000 !important;
+    opacity: 0.6;
+}
+
+/* Allow custom color for the Day X/Y badge in Active Season */
+.history-overview .history-day-badge {
+    color: #fff !important;
+}
+
+/* Keep button text white */
+.history-overview button {
+    color: #fff !important;
+}
+
+/* Keep badge text colors */
+.history-overview .bg-emerald-600\/30 span,
+.history-overview .bg-emerald-600\/30 {
+    color: #047857 !important;
+}
+
+.history-overview .bg-amber-600\/30 {
+    color: #92400e !important;
+}
+
+.history-overview .bg-green-600\/30 {
+    color: #166534 !important;
+}
+
+.history-overview .bg-blue-600\/30 {
+    color: #1e40af !important;
+}
+
+/* Survival rate percentage */
+.history-overview .survival-rate-value {
+    color: inherit !important;
+}
+
+/* Textarea styling */
+.history-overview textarea {
+    color: #000 !important;
+    resize: vertical;
+}
+
+/* Comparison table best-value highlight */
+.history-overview .compare-best {
+    background: rgba(16, 185, 129, 0.15);
+    font-weight: 700;
+}
+
+/* SVG text in charts */
+.history-overview svg text {
+    color: inherit !important;
+}
