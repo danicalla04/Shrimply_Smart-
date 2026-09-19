@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getThresholds, fetchThresholds } from '../services/settings'
+import { classifySensor, TONE_BADGE_CLASS } from '../services/sensorLabels'
 import { fetchLatestSensors, getSensorReadings, isSensorDisconnected, normalizeSensorValue } from '../services/sensors'
 import { getWaterQualityStatus } from '../services/waterQuality'
 import { controlBuzzer, playBeeperSound } from '../services/buzzer'
@@ -32,6 +33,18 @@ ChartJS.register(
   Legend,
   Filler
 )
+
+function formatOfflineDuration(ms) {
+  const totalSec = Math.max(45, Math.round((Number.isFinite(ms) ? ms : 45000) / 1000))
+  const hours = Math.floor(totalSec / 3600)
+  const minutes = Math.floor((totalSec % 3600) / 60)
+  const seconds = totalSec % 60
+  const parts = []
+  if (hours > 0) parts.push(`${hours}h`)
+  if (minutes > 0 || hours > 0) parts.push(`${minutes}m`)
+  parts.push(`${seconds}s`)
+  return parts.join(' ')
+}
 
 const Dashboard = () => {
   const { t } = useLanguage()
@@ -643,7 +656,7 @@ const Dashboard = () => {
                 Sensors Offline
               </h2>
               <p className="text-lg text-slate-600">
-                No new sensor data for {Math.max(45, Math.round((Number.isFinite(sensorAgeMs) ? sensorAgeMs : 45000) / 1000))}s.
+                No new sensor data for {formatOfflineDuration(sensorAgeMs)}.
                 Showing last saved readings below (may be stale).
               </p>
             </div>
@@ -721,7 +734,7 @@ const Dashboard = () => {
       })()}
 
       {/* Metrics Grid */}
-      <div className="grid-modern mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
         {metrics.map((metric) => {
           const valueMissing = isSensorDisconnected(metric.key, metric.value)
           // Always print last DB value when present — even if feed is offline/stale
@@ -734,9 +747,10 @@ const Dashboard = () => {
               ? 'No value in DB for this sensor'
               : null
           const { rangeMin, rangeMax } = getRangeBounds(metric)
-          const { pct, belowMin, aboveMax, inRange } = hasValue
+          const { pct, inRange } = hasValue
             ? getRangeProgress(metric)
             : { pct: 0, belowMin: false, aboveMax: false, inRange: false }
+          const reading = hasValue ? classifySensor(metric.key, metric.value) : null
           const accent = !hasValue
             ? 'from-slate-400 to-slate-500'
             : !sensorOnline
@@ -770,34 +784,32 @@ const Dashboard = () => {
                 : 'text-slate-800'
 
           return (
-          <div key={metric.key} className="relative group">
-            <div className={`metric-card-modern ${hasValue && sensorOnline && !inRange ? 'ring-1 ring-red-200' : ''}`}>
-              <div className="flex items-center justify-between mb-4">
-                <div className={`p-3 rounded-xl bg-gradient-to-r ${accent} text-white shadow-lg`}>
+          <div key={metric.key} className="h-full">
+            <div className={`metric-card-modern h-full min-h-[240px] flex flex-col border !border-slate-200 shadow-md ${hasValue && sensorOnline && !inRange ? 'ring-1 ring-red-200' : ''}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className={`p-3 rounded-xl bg-gradient-to-r ${accent} text-white shadow-lg shrink-0`}>
                   <span className="text-2xl">{metric.icon}</span>
                 </div>
-                <div className="text-right">
-                  <div className={`text-3xl font-bold ${valueClass}`}>{displayValue}</div>
-                  <div className="text-sm text-slate-500">{metric.unit}</div>
+                <div className="text-right min-w-0">
+                  <div className={`text-3xl font-bold leading-none ${valueClass}`}>{displayValue}</div>
+                  <div className="text-sm text-slate-500 mt-1">{metric.unit}</div>
+                  {reading && (
+                    <div className={`mt-2 inline-flex items-center text-xs font-bold px-2.5 py-1 rounded-full border ${TONE_BADGE_CLASS[reading.tone]}`}>
+                      {t(reading.labelKey)} · {t(reading.verdictKey)}
+                    </div>
+                  )}
                   {statusBadge && (
-                    <div className={`text-xs font-semibold mt-0.5 ${!sensorOnline ? 'text-slate-500' : 'text-amber-600'}`}>
+                    <div className={`text-xs font-semibold mt-1 ${!sensorOnline ? 'text-slate-500' : 'text-amber-600'}`}>
                       {statusBadge}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-lg font-semibold text-slate-800">{metric.title}</h3>
-                  {hasValue && sensorOnline && !inRange && (
-                    <span className="text-xs font-medium text-red-600">
-                      {aboveMax ? 'Above max' : belowMin ? 'Below min' : 'Out of range'}
-                    </span>
-                  )}
-                </div>
+              <div className="mt-auto pt-6">
+                <h3 className="text-lg font-semibold text-slate-800">{metric.title}</h3>
                 {statusHint ? (
-                  <div className={`mt-1 px-2 py-1.5 rounded-lg border text-xs ${
+                  <div className={`mt-2 px-2 py-1.5 rounded-lg border text-xs ${
                     !sensorOnline
                       ? 'bg-slate-50 border-slate-200 text-slate-700'
                       : 'bg-amber-50 border-amber-200 text-amber-800'
@@ -807,7 +819,7 @@ const Dashboard = () => {
                 ) : null}
                 {hasValue && (
                   <>
-                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden mt-2">
+                    <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden mt-3">
                       <div
                         className={`h-2 rounded-full transition-all duration-500 ${barColor}`}
                         style={{ width: `${pct}%` }}
@@ -877,42 +889,50 @@ const Dashboard = () => {
               if (!param) return null
 
               const isDisconnected = param.status === 'disconnected' || param.value == null
-              const isOptimal = param.status === 'optimal'
+              const reading = !isDisconnected ? classifySensor(item.key, param.value) : null
               const statusConfig = isDisconnected
                 ? {
                   bg: 'bg-amber-50 border-amber-300',
                   text: 'text-amber-800',
                   badge: 'bg-amber-500 text-white',
-                  label: 'Disconnected'
+                  label: 'Disconnected',
+                  bar: 'bg-slate-400'
                 }
-                : isOptimal
+                : reading?.tone === 'good'
                   ? {
                     bg: 'bg-green-50 border-green-300',
                     text: 'text-green-800',
                     badge: 'bg-green-500 text-white',
-                    label: '✓ ' + t('goodForShrimp')
+                    label: `${t(reading.labelKey)} · ${t(reading.verdictKey)}`,
+                    bar: 'bg-green-500'
                   }
-                  : {
-                    bg: 'bg-red-50 border-red-300',
-                    text: 'text-red-800',
-                    badge: 'bg-red-500 text-white',
-                    label: '✗ ' + t('badForShrimp')
-                  }
+                  : reading?.tone === 'caution'
+                    ? {
+                      bg: 'bg-amber-50 border-amber-300',
+                      text: 'text-amber-800',
+                      badge: 'bg-amber-500 text-white',
+                      label: `${t(reading.labelKey)} · ${t(reading.verdictKey)}`,
+                      bar: 'bg-amber-500'
+                    }
+                    : {
+                      bg: 'bg-red-50 border-red-300',
+                      text: 'text-red-800',
+                      badge: 'bg-red-500 text-white',
+                      label: `${t(reading?.labelKey || 'badForShrimp')} · ${t(reading?.verdictKey || 'verdictBad')}`,
+                      bar: 'bg-red-500'
+                    }
 
               return (
                 <div key={item.key} className={`relative p-4 rounded-lg border-2 shadow-md ${statusConfig.bg}`}>
                   {/* Status Badge */}
                   <div className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold ${statusConfig.badge}`}>
-                    {isDisconnected ? 'OFF' : isOptimal ? 'GOOD' : 'BAD'}
+                    {isDisconnected ? 'OFF' : `${t(reading.labelKey)} · ${t(reading.verdictKey)}`}
                   </div>
 
                   <div className="flex items-center mb-3">
                     <span className="text-3xl mr-3">{item.icon}</span>
                     <div>
                       <h4 className={`font-bold text-sm ${statusConfig.text}`}>{item.label}</h4>
-                      <p className="text-xs text-gray-600">
-                        {t('optimal')}: {param.min} – {param.max} {param.unit}
-                      </p>
                     </div>
                   </div>
 
@@ -927,7 +947,7 @@ const Dashboard = () => {
                         <span className="text-lg">—</span>
                       )}
                     </div>
-                    <div className={`mt-2 text-xs font-semibold uppercase tracking-wide ${statusConfig.text}`}>
+                    <div className={`mt-2 text-xs font-semibold ${statusConfig.text}`}>
                       {statusConfig.label}
                     </div>
                   </div>
@@ -936,7 +956,7 @@ const Dashboard = () => {
                   {param.value != null && param.value !== '' && (
                     <div className="mt-3 w-full bg-gray-200 rounded-full h-2">
                       <div
-                        className={`h-2 rounded-full transition-all duration-500 ${isDisconnected ? 'bg-slate-400' : isOptimal ? 'bg-green-500' : 'bg-red-500'}`}
+                        className={`h-2 rounded-full transition-all duration-500 ${statusConfig.bar}`}
                         style={{
                           width: `${Math.min(100, Math.max(0, ((param.value - param.min) / (param.max - param.min)) * 100))}%`
                         }}

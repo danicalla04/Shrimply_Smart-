@@ -3,6 +3,14 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
+const faviconHref = `/smart-shrimp-icon.png?v=3`
+document.querySelectorAll("link[rel*='icon']").forEach((el) => el.remove())
+const favicon = document.createElement('link')
+favicon.rel = 'icon'
+favicon.type = 'image/png'
+favicon.href = faviconHref
+document.head.appendChild(favicon)
+
 // Debug mounting instrumentation
 console.log('[MAIN] Bundled main.jsx executing');
 window.__APP_MOUNT_TIME = Date.now();

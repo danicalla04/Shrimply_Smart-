@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -12,7 +12,6 @@ import {
   Legend,
 } from 'chart.js';
 import { useWeather } from './WeatherContext';
-import { fetchApod } from '../../services/weather/nasa';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend);
 
@@ -33,22 +32,6 @@ function num(v) {
 
 export default function WeatherDetails() {
   const { forecast, air, settings, location } = useWeather();
-  const [apod, setApod] = useState(null);
-  const [apodError, setApodError] = useState('');
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setApodError('');
-
-    fetchApod({ apiKey: settings?.nasaApiKey || 'DEMO_KEY', signal: controller.signal })
-      .then(setApod)
-      .catch((e) => {
-        if (e?.name === 'AbortError') return;
-        setApodError(e?.message || 'Failed to load NASA APOD');
-      });
-
-    return () => controller.abort();
-  }, [settings?.nasaApiKey]);
 
   const tempSeries = useMemo(() => buildHourlySeries(forecast, 'temperature_2m', 48), [forecast]);
   const rainSeries = useMemo(() => buildHourlySeries(forecast, 'precipitation_probability', 48), [forecast]);
@@ -180,40 +163,6 @@ export default function WeatherDetails() {
             <div className="metric-card-modern p-4">
               <div className="text-slate-500 text-sm">Ozone</div>
               <div className="text-2xl font-bold text-slate-800">{Number.isFinite(airCurrent.ozone) ? airCurrent.ozone.toFixed(0) : '—'}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* NASA */}
-      <div className="glass-card p-6">
-        <h2 className="text-2xl font-bold text-slate-900">NASA Imagery</h2>
-        <div className="text-slate-600 mt-1">Astronomy Picture of the Day (APOD)</div>
-
-        {apodError && <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-800">{apodError}</div>}
-
-        {!apod ? (
-          <div className="mt-4 h-56 bg-gray-200 rounded-2xl animate-pulse" />
-        ) : (
-          <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="metric-card-modern p-4">
-              {apod.media_type === 'image' ? (
-                <img
-                  src={apod.url}
-                  alt={apod.title}
-                  loading="lazy"
-                  className="w-full h-[320px] object-cover rounded-xl"
-                />
-              ) : (
-                <a className="text-blue-700 hover:underline" href={apod.url} target="_blank" rel="noreferrer">
-                  Open APOD media
-                </a>
-              )}
-            </div>
-            <div className="metric-card-modern p-5">
-              <div className="text-sm text-slate-500">{apod.date}</div>
-              <div className="text-xl font-bold text-slate-900 mt-1">{apod.title}</div>
-              <div className="text-slate-700 text-sm mt-3 leading-relaxed">{apod.explanation}</div>
             </div>
           </div>
         )}

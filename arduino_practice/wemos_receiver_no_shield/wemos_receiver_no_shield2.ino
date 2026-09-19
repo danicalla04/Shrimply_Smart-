@@ -75,13 +75,13 @@
 const char* WIFI_SSID     = "thiss";
 const char* WIFI_PASSWORD = "123456789";
 
-// ── Server / Database Endpoint ───────────────────────────────────
-// Run ipconfig → Wireless LAN → IPv4. Update EVERY time PC/hotspot IP changes.
-// Must match: ipconfig → Wireless LAN adapter Wi-Fi → IPv4
-// This PC on hotspot "thiss" is currently 10.111.44.87
-const char* SERVER_URL = "http://10.111.44.87/sensor_api.php";
-const char* FEEDER_URL = "http://10.111.44.87/feeder_api.php";
-const char* SERVO_CMD_URL = "http://10.111.44.87/servo_cmd_api.php";
+// ── Server / Database Endpoint (live Hostinger VPS) ──────────────
+// Public site: http://187.77.139.246  (use shrimplysmart.online later when DNS works)
+// WeMos Wi-Fi must have internet (phone hotspot → mobile data ON).
+// Use http:// not https:// — ESP8266 HTTPClient here is HTTP-only.
+const char* SERVER_URL    = "http://187.77.139.246/sensor_api.php";
+const char* FEEDER_URL    = "http://187.77.139.246/feeder_api.php";
+const char* SERVO_CMD_URL = "http://187.77.139.246/servo_cmd_api.php";
 
 // ── SoftSerial (Arduino ↔ WeMos) — D5 / D6 ───────────────────────
 #define SW_RX_PIN D5
