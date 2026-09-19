@@ -229,12 +229,9 @@ class AlertService:
     
     @staticmethod
     def get_alert_summary():
-        """Get summary of active alerts by severity"""
+        """Get summary of unread (unresolved) alerts by severity."""
         logger.debug(f'[ALERT_SUMMARY] Generating alert summary...')
-        active_alerts = Alert.objects.filter(
-            resolved=False,
-            timestamp__gte=timezone.now() - timedelta(days=1)
-        )
+        active_alerts = Alert.objects.filter(resolved=False)
         
         critical = active_alerts.filter(severity='critical').count()
         warning = active_alerts.filter(severity='warning').count()
@@ -270,8 +267,8 @@ class AlertService:
     # No feeder telemetry for this long → ultrasonic/feeder device offline
     # (matches the 20s "Telemetry age" threshold used on the Feeding page)
     FEEDER_STALE_SECONDS = 20
-    # Larger ultrasonic gap = less feed in the hopper
-    FEEDER_LOW_DISTANCE_CM = 32.0
+    # Larger ultrasonic gap = less feed in the hopper (20 cm = full, 37 cm = 10%)
+    FEEDER_LOW_DISTANCE_CM = 37.0
     # After user marks offline/disconnect as read, do not recreate until sensors recover
     _SNOOZE_UNTIL_ONLINE_PREFIX = 'alert:snooze_until_online:'
     _CREATE_LOCK_PREFIX = 'alert:creating:'
@@ -516,7 +513,7 @@ class AlertService:
     @staticmethod
     def check_feeder_level():
         """
-        When ultrasonic distance is 32 cm or more, the hopper is low.
+        When ultrasonic distance is 37 cm or more, the hopper is low (~10%).
         One open 'feeder_level' alert; emails Settings → notification email
         on first create. Fresh telemetry only (ignore stale/offline readings).
         """

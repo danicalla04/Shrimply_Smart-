@@ -1,4 +1,4 @@
-/* Force black text across the History Overview section */
+/* Ponds / history — light text on the ocean dashboard */
 .history-overview,
 .history-overview h1,
 .history-overview h2,
@@ -14,69 +14,511 @@
 .history-overview em,
 .history-overview th,
 .history-overview td,
-.history-overview button,
 .history-overview div {
-    color: #000 !important;
+    color: #e8f4fc !important;
+}
+
+.history-overview .text-slate-400,
+.history-overview .text-slate-500,
+.history-overview .text-slate-600 {
+    color: #9ec9dc !important;
+}
+
+.history-overview .glass-card {
+    background: var(--panel-fill);
+    border: var(--panel-border);
 }
 
 .history-overview input,
 .history-overview select,
 .history-overview textarea {
-    color: #000 !important;
+    color: #f8fafc !important;
+    background: rgba(4, 18, 36, 0.88) !important;
+    border: 1px solid rgba(148, 163, 184, 0.28) !important;
+}
+
+.history-overview input[type="time"],
+.history-overview input[type="date"] {
+    position: relative;
+    min-height: 2.55rem;
+    padding-right: 2.6rem;
+    color: #ffffff !important;
+    color-scheme: light;
+    caret-color: #ffffff;
+}
+
+.history-overview input[type="time"]::-webkit-datetime-edit,
+.history-overview input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+.history-overview input[type="time"]::-webkit-datetime-edit-text,
+.history-overview input[type="time"]::-webkit-datetime-edit-hour-field,
+.history-overview input[type="time"]::-webkit-datetime-edit-minute-field,
+.history-overview input[type="time"]::-webkit-datetime-edit-ampm-field,
+.history-overview input[type="date"]::-webkit-datetime-edit,
+.history-overview input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.history-overview input[type="date"]::-webkit-datetime-edit-text,
+.history-overview input[type="date"]::-webkit-datetime-edit-month-field,
+.history-overview input[type="date"]::-webkit-datetime-edit-day-field,
+.history-overview input[type="date"]::-webkit-datetime-edit-year-field {
+    color: #ffffff !important;
+}
+
+.history-overview input[type="time"]::-webkit-calendar-picker-indicator,
+.history-overview input[type="date"]::-webkit-calendar-picker-indicator {
+    display: none;
+}
+
+.history-overview .harvest-picker {
+    position: relative;
+}
+
+.history-overview .harvest-picker input[type="time"],
+.history-overview .harvest-picker input[type="date"] {
+    padding-right: 2.7rem;
+}
+
+.history-overview .harvest-picker-btn {
+    position: absolute;
+    right: 0.55rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 0.55rem;
+    background: transparent;
+    color: #e8f4fc !important;
+    cursor: pointer;
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.history-overview .harvest-picker-btn:hover {
+    background: rgba(125, 211, 252, 0.16);
+}
+
+.history-overview .avg-window-toggle {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+}
+
+.history-overview .avg-window-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 0.9rem;
+    border: 1px solid rgba(125, 211, 252, 0.22);
+    background: rgba(4, 18, 36, 0.72);
+    color: #d7eef8 !important;
+    font-weight: 600;
+}
+
+.history-overview .avg-window-btn.is-active {
+    background: rgba(34, 211, 238, 0.22);
+    border-color: rgba(103, 232, 249, 0.55);
+    color: #ffffff !important;
 }
 
 .history-overview input::placeholder,
 .history-overview textarea::placeholder {
-    color: #000 !important;
-    opacity: 0.6;
+    color: #93c6d8 !important;
+    opacity: 0.85;
 }
 
-/* Allow custom color for the Day X/Y badge in Active Season */
+.history-overview option {
+    color: #f8fafc;
+    background: #0b2238;
+}
+
 .history-overview .history-day-badge {
     color: #fff !important;
 }
 
-/* Keep button text white */
 .history-overview button {
     color: #fff !important;
 }
 
-/* Keep badge text colors */
-.history-overview .bg-emerald-600\/30 span,
-.history-overview .bg-emerald-600\/30 {
-    color: #047857 !important;
+.history-overview .harvest-action-btn {
+    padding: 0.55rem 1.05rem;
+    border-radius: 0.8rem;
+    border: 1px solid rgba(125, 211, 252, 0.45);
+    background: #1d4ed8 !important;
+    color: #fff !important;
+    font-weight: 700;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
 }
 
-.history-overview .bg-amber-600\/30 {
-    color: #92400e !important;
+.history-overview .harvest-action-btn:hover {
+    filter: brightness(1.08);
 }
 
-.history-overview .bg-green-600\/30 {
-    color: #166534 !important;
+.history-overview .harvest-action-btn.is-all {
+    background: #0f766e !important;
+    border-color: rgba(45, 212, 191, 0.5);
 }
 
-.history-overview .bg-blue-600\/30 {
-    color: #1e40af !important;
+.history-overview .harvest-action-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
-/* Survival rate percentage */
+.history-overview .season-action-btn {
+    padding: 0.4rem 0.8rem;
+    border-radius: 0.65rem;
+    border: 1px solid rgba(125, 211, 252, 0.45);
+    background: #1d4ed8 !important;
+    color: #fff !important;
+    font-weight: 700;
+    font-size: 0.75rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+.history-overview .season-action-btn:hover {
+    filter: brightness(1.08);
+}
+
+.history-overview .season-action-btn.is-export {
+    background: #0f766e !important;
+    border-color: rgba(45, 212, 191, 0.5);
+}
+
+.history-overview .season-action-btn.is-close {
+    background: rgba(15, 23, 42, 0.9) !important;
+    border-color: rgba(148, 163, 184, 0.35);
+}
+
+.history-overview .season-action-btn.is-danger {
+    background: #be123c !important;
+    border-color: rgba(251, 113, 133, 0.55);
+}
+
+.history-overview .bg-emerald-600\/30,
+.history-overview .bg-emerald-600\/30 span {
+    color: #6ee7b7 !important;
+}
+
+.history-overview .bg-amber-600\/30,
+.history-overview .bg-amber-600\/30 span {
+    color: #fde68a !important;
+}
+
+.history-overview .bg-green-600\/30,
+.history-overview .bg-green-600\/30 span {
+    color: #86efac !important;
+}
+
+.history-overview .bg-blue-600\/30,
+.history-overview .bg-blue-600\/30 span {
+    color: #93c5fd !important;
+}
+
+.history-overview .season-status-active,
+.history-overview .season-status-completed {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.history-overview .season-status-active {
+    background: rgba(6, 95, 70, 0.55);
+    border: 1px solid rgba(52, 211, 153, 0.45);
+    color: #6ee7b7 !important;
+}
+
+.history-overview .season-status-completed {
+    background: rgba(8, 47, 73, 0.72);
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    color: #7dd3fc !important;
+}
+
 .history-overview .survival-rate-value {
     color: inherit !important;
 }
 
-/* Textarea styling */
 .history-overview textarea {
-    color: #000 !important;
     resize: vertical;
 }
 
-/* Comparison table best-value highlight */
 .history-overview .compare-best {
-    background: rgba(16, 185, 129, 0.15);
+    background: rgba(52, 211, 153, 0.18);
     font-weight: 700;
 }
 
-/* SVG text in charts */
 .history-overview svg text {
-    color: inherit !important;
+    fill: #d7f4ff !important;
 }
+
+.history-overview table {
+    color: #e8f4fc;
+}
+
+.history-overview th {
+    color: #7dd3fc !important;
+}
+
+.season-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 0.75rem;
+    align-items: start;
+}
+
+.season-card {
+    border: var(--panel-border);
+    border-radius: 14px;
+    background: var(--panel-fill);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    overflow: hidden;
+    height: fit-content;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.season-card.is-open {
+    grid-column: 1 / -1;
+    border-color: rgba(125, 211, 252, 0.5);
+    box-shadow: 0 10px 24px rgba(0, 8, 20, 0.38);
+}
+
+.season-card-head {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    background: transparent !important;
+    border: 0 !important;
+    text-align: left;
+    cursor: pointer;
+}
+
+.season-card-titleblock {
+    min-width: 0;
+}
+
+.season-card-name {
+    font-weight: 700;
+    font-size: 0.98rem;
+}
+
+.season-card-dates {
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    color: #9ec9dc !important;
+}
+
+.season-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-shrink: 0;
+}
+
+.season-chip {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(29, 78, 216, 0.28);
+    border: 1px solid rgba(125, 211, 252, 0.25);
+}
+
+.season-caret {
+    display: inline-flex;
+    transition: transform 0.15s ease;
+    font-size: 0.9rem;
+    opacity: 0.8;
+    transform: rotate(-90deg);
+}
+
+.season-caret.is-open {
+    transform: rotate(0deg);
+}
+
+.season-card-body {
+    display: flex;
+    align-items: stretch;
+    gap: 0.85rem;
+    padding: 0 0.9rem 0.95rem;
+    border-top: 1px solid rgba(125, 211, 252, 0.14);
+}
+
+.season-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 0.55rem;
+    margin: 0.75rem 0;
+    flex: 1;
+}
+
+.season-stat {
+    background: rgba(4, 12, 26, 0.38);
+    border: 1px solid rgba(125, 211, 252, 0.12);
+    border-radius: 10px;
+    padding: 0.5rem 0.65rem;
+}
+
+.season-stat-label {
+    font-size: 0.68rem;
+    color: #9ec9dc !important;
+}
+
+.season-stat-value {
+    margin-top: 0.12rem;
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.season-card-actions {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    padding: 0.75rem 0;
+}
+
+@media (max-width: 1100px) {
+    .season-stat-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .season-card-body {
+        flex-direction: column;
+    }
+    .season-stat-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    .season-card-actions {
+        flex-direction: row;
+        padding: 0 0 0.2rem;
+    }
+}
+
+html.theme-light .history-overview,
+html.theme-light .history-overview h1,
+html.theme-light .history-overview h2,
+html.theme-light .history-overview h3,
+html.theme-light .history-overview h4,
+html.theme-light .history-overview h5,
+html.theme-light .history-overview h6,
+html.theme-light .history-overview p,
+html.theme-light .history-overview span,
+html.theme-light .history-overview label,
+html.theme-light .history-overview small,
+html.theme-light .history-overview strong,
+html.theme-light .history-overview em,
+html.theme-light .history-overview th,
+html.theme-light .history-overview td,
+html.theme-light .history-overview div {
+    color: #1a2d32 !important;
+}
+
+html.theme-light .history-overview .text-slate-400,
+html.theme-light .history-overview .text-slate-500,
+html.theme-light .history-overview .text-slate-600,
+html.theme-light .history-overview .season-card-dates {
+    color: #4a5e64 !important;
+}
+
+html.theme-light .history-overview input,
+html.theme-light .history-overview select,
+html.theme-light .history-overview textarea {
+    color: #1a2d32 !important;
+    background: #fff !important;
+    border: 1px solid rgba(28, 55, 62, 0.14) !important;
+}
+
+html.theme-light .history-overview input[type="time"],
+html.theme-light .history-overview input[type="date"],
+html.theme-light .history-overview input[type="time"]::-webkit-datetime-edit,
+html.theme-light .history-overview input[type="time"]::-webkit-datetime-edit-fields-wrapper,
+html.theme-light .history-overview input[type="time"]::-webkit-datetime-edit-text,
+html.theme-light .history-overview input[type="time"]::-webkit-datetime-edit-hour-field,
+html.theme-light .history-overview input[type="time"]::-webkit-datetime-edit-minute-field,
+html.theme-light .history-overview input[type="time"]::-webkit-datetime-edit-ampm-field,
+html.theme-light .history-overview input[type="date"]::-webkit-datetime-edit,
+html.theme-light .history-overview input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+html.theme-light .history-overview input[type="date"]::-webkit-datetime-edit-text,
+html.theme-light .history-overview input[type="date"]::-webkit-datetime-edit-month-field,
+html.theme-light .history-overview input[type="date"]::-webkit-datetime-edit-day-field,
+html.theme-light .history-overview input[type="date"]::-webkit-datetime-edit-year-field {
+    color: #1a2d32 !important;
+}
+
+html.theme-light .history-overview .harvest-picker-btn {
+    color: #1a2d32 !important;
+}
+
+html.theme-light .history-overview .avg-window-btn {
+    background: #f1f4f3;
+    border-color: rgba(28, 55, 62, 0.12);
+    color: #1a2d32 !important;
+}
+
+html.theme-light .history-overview .avg-window-btn.is-active {
+    background: #0f766e;
+    border-color: #0f766e;
+    color: #fff !important;
+}
+
+html.theme-light .history-overview input::placeholder,
+html.theme-light .history-overview textarea::placeholder {
+    color: #64748b !important;
+}
+
+html.theme-light .history-overview option {
+    color: #1a2d32;
+    background: #fff;
+}
+
+html.theme-light .history-overview button {
+    color: #1a2d32 !important;
+}
+
+html.theme-light .history-overview .harvest-action-btn,
+html.theme-light .history-overview .season-action-btn,
+html.theme-light .history-overview .history-day-badge,
+html.theme-light .history-overview .avg-window-btn.is-active {
+    color: #fff !important;
+}
+
+html.theme-light .history-overview .season-action-btn.is-close {
+    background: #e8eeea !important;
+    color: #1a2d32 !important;
+    border-color: rgba(28, 55, 62, 0.14);
+}
+
+html.theme-light .history-overview .season-status-active {
+    background: rgba(16, 185, 129, 0.14);
+    border-color: rgba(16, 185, 129, 0.35);
+    color: #047857 !important;
+}
+
+html.theme-light .history-overview .season-status-completed {
+    background: rgba(14, 116, 144, 0.1);
+    border-color: rgba(14, 116, 144, 0.28);
+    color: #155e75 !important;
+}
+
+html.theme-light .history-overview .bg-emerald-600\/30,
+html.theme-light .history-overview .bg-emerald-600\/30 span { color: #047857 !important; }
+html.theme-light .history-overview .bg-amber-600\/30,
+html.theme-light .history-overview .bg-amber-600\/30 span { color: #b45309 !important; }
+html.theme-light .history-overview .bg-green-600\/30,
+html.theme-light .history-overview .bg-green-600\/30 span { color: #15803d !important; }
+html.theme-light .history-overview .bg-blue-600\/30,
+html.theme-light .history-overview .bg-blue-600\/30 span { color: #1d4ed8 !important; }
+
+html.theme-light .history-overview svg text { fill: #1a2d32 !important; }
+html.theme-light .history-overview table { color: #1a2d32; }
+html.theme-light .history-overview th { color: #0f766e !important; }

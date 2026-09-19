@@ -4,6 +4,7 @@ import authService from '../services/auth';
 import { EFFECTIVE_API_BASE } from '../services/apiConfig';
 import ShrimpQuantityForm from './ShrimpQuantityForm';
 import GrowthAnalytics from './GrowthAnalytics';
+import PageLoader from '../components/PageLoader';
 
 export default function GrowthDashboard() {
   const { seasonId: paramSeasonId } = useParams();
@@ -43,16 +44,12 @@ export default function GrowthDashboard() {
   }, [paramSeasonId]);
 
   if (loading) {
-    return (
-      <div className="p-8 modern-bg min-h-full">
-        <div className="text-center text-slate-500">Loading...</div>
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (seasons.length === 0) {
     return (
-      <div className="p-8 modern-bg min-h-full">
+      <div className="p-8">
         <div className="max-w-4xl mx-auto">
           <div className="glass-card p-8 text-center">
             <p className="text-slate-500 mb-4">No seasons found. Create a new season to start tracking growth.</p>
@@ -65,7 +62,7 @@ export default function GrowthDashboard() {
   const activeSeason = seasons.find(s => s.id === selectedSeasonId);
 
   return (
-    <div className="p-8 modern-bg min-h-full">
+    <div className="p-8">
       {/* Hero Header */}
       <div className="mb-8 relative">
         <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 rounded-2xl"></div>
@@ -82,11 +79,7 @@ export default function GrowthDashboard() {
           <button
             key={season.id}
             onClick={() => setSelectedSeasonId(season.id)}
-            className={`px-4 py-2 rounded-xl font-medium transition-all shadow-sm ${
-              selectedSeasonId === season.id
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-md'
-                : 'bg-white text-slate-600 border border-slate-200 hover:border-cyan-300 hover:text-cyan-600'
-            }`}
+            className={`aq-choice${selectedSeasonId === season.id ? ' is-on' : ''}`}
           >
             {season.name}
             {season.is_active && ' 🟢'}
@@ -191,9 +184,9 @@ export default function GrowthDashboard() {
           </div>
 
           {/* Information Panel */}
-          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
-            <h3 className="text-blue-900 font-bold text-lg mb-3">💡 How to Use</h3>
-            <ul className="space-y-2 text-blue-900 text-sm">
+          <div className="card p-6">
+            <h3 className="font-bold text-lg mb-3">💡 How to Use</h3>
+            <ul className="space-y-2 text-sm text-cyan-100/80">
               <li>✅ <strong>Input Data:</strong> Use the form on the left to enter daily metrics for your shrimp pond</li>
               <li>✅ <strong>Track Growth:</strong> Log shrimp count, average weight, and water quality parameters</li>
               <li>✅ <strong>Get Predictions:</strong> The ML model predicts growth trends and harvest dates</li>

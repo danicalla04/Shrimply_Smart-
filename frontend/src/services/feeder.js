@@ -279,6 +279,25 @@ export function capacityPercent(state) {
   return Math.max(0, Math.min(100, Math.round((current / max) * 100)));
 }
 
+/** Ultrasonic hopper map: 20 cm = full, 37 cm = 10% (low-feed alert). */
+export const HOPPER_FULL_CM = 20
+export const HOPPER_TEN_PERCENT_CM = 37
+export const FEEDER_TELEMETRY_STALE_MS = 20_000
+
+export function hopperPercentFromDistance(distanceCm) {
+  const d = Number(distanceCm)
+  if (!Number.isFinite(d)) return null
+  const span = HOPPER_TEN_PERCENT_CM - HOPPER_FULL_CM
+  const pct = 100 + ((d - HOPPER_FULL_CM) * (10 - 100)) / span
+  return Math.max(0, Math.min(100, Math.round(pct)))
+}
+
+export function isFeederTelemetryFresh(timestamp, now = Date.now()) {
+  if (!timestamp) return false
+  const age = now - new Date(timestamp).getTime()
+  return Number.isFinite(age) && age >= 0 && age <= FEEDER_TELEMETRY_STALE_MS
+}
+
 export function scheduleNext(state, fromTs = Date.now()) {
   const ms = Math.max(1, Number(state.intervalMinutes || state.interval_minutes)) * 60 * 1000;
   return { ...state, nextFeedAt: fromTs + ms };

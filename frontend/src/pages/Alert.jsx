@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import AlertCard from '../components/AlertCard'
 import { useLanguage } from '../context/LanguageContext'
-import { fetchAlerts, resolveAlert, resolveAllAlerts } from '../services/alerts'
+import { fetchAlerts, resolveAlert, resolveAllAlerts, deleteAlert } from '../services/alerts'
 
 const PARAM_LABELS = {
   temperature: 'Temperature',
@@ -162,6 +162,8 @@ const Alert = () => {
   }
 
   const [filter, setFilter] = useState('all')
+  const [pendingDelete, setPendingDelete] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   const handleMarkAsRead = async (id) => {
     try {
@@ -175,8 +177,27 @@ const Alert = () => {
     }
   }
 
-  const handleDismissAlert = (id) => {
-    setAlerts(alerts.filter(alert => alert.id !== id))
+  const actuallyDeleteAlert = async (id) => {
+    setDeleting(true)
+    try {
+      await deleteAlert(id)
+      setAlerts((prev) => prev.filter((alert) => alert.id !== id))
+      setTotalCount((count) => Math.max(0, count - 1))
+      setPendingDelete(null)
+      window.dispatchEvent(new Event('alerts-changed'))
+    } catch (error) {
+      console.error('Failed to delete alert:', error)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleDismissAlert = (alert) => {
+    if (!alert?.isRead) {
+      setPendingDelete(alert)
+      return
+    }
+    actuallyDeleteAlert(alert.id)
   }
 
   const handleMarkAllAsRead = async () => {
@@ -207,8 +228,9 @@ const Alert = () => {
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('systemAlerts')}</h1>
-            <p className="text-gray-600">{t('alertsSubtitle')}</p>
+            <div className="pond-kicker">Notifications</div>
+            <h1 className="aq-title mb-2">{t('systemAlerts')}</h1>
+            <p className="aq-sub">{t('alertsSubtitle')}</p>
           </div>
           <div className="flex items-center space-x-4">
             <div className="text-right">
@@ -227,38 +249,38 @@ const Alert = () => {
 
         {/* Alert Summary */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="card-gradient border-red-200">
+          <div className="card">
             <div className="flex items-center">
-              <div className="p-3 bg-red-100 rounded-lg mr-4">
+              <div className="p-3 rounded-lg mr-4 bg-slate-950/40 border border-red-400/25">
                 <span className="text-2xl">🔴</span>
               </div>
               <div>
-                <div className="text-2xl font-bold text-red-600">{unreadCritical}</div>
-                <div className="text-sm text-gray-600">{t('criticalAlerts')}</div>
+                <div className="text-2xl font-bold text-red-300">{unreadCritical}</div>
+                <div className="text-sm text-cyan-200/70">{t('criticalAlerts')}</div>
               </div>
             </div>
           </div>
-          <div className="card-gradient border-yellow-200">
+          <div className="card">
             <div className="flex items-center">
-              <div className="p-3 bg-yellow-100 rounded-lg mr-4">
+              <div className="p-3 rounded-lg mr-4 bg-slate-950/40 border border-amber-400/25">
                 <span className="text-2xl">🟡</span>
               </div>
               <div>
-                <div className="text-2xl font-bold text-yellow-600">{unreadWarning}</div>
-                <div className="text-sm text-gray-600">{t('warningAlerts')}</div>
+                <div className="text-2xl font-bold text-amber-300">{unreadWarning}</div>
+                <div className="text-sm text-cyan-200/70">{t('warningAlerts')}</div>
               </div>
             </div>
           </div>
-          <div className="card-gradient border-green-200">
+          <div className="card">
             <div className="flex items-center">
-              <div className="p-3 bg-green-100 rounded-lg mr-4">
+              <div className="p-3 rounded-lg mr-4 bg-slate-950/40 border border-emerald-400/25">
                 <span className="text-2xl">🟢</span>
               </div>
               <div>
-                <div className="text-2xl font-bold text-green-600">
+                <div className="text-2xl font-bold text-emerald-300">
                   {alerts.filter(alert => alert.type === 'safe' && !alert.isRead).length}
                 </div>
-                <div className="text-sm text-gray-600">{t('safeStatus')}</div>
+                <div className="text-sm text-cyan-200/70">{t('safeStatus')}</div>
               </div>
             </div>
           </div>
@@ -289,7 +311,7 @@ const Alert = () => {
       </div>
 
       {/* Alerts List */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         {filteredAlerts.length === 0 ? (
           <div className="card text-center py-12">
             <div className="text-6xl mb-4">✅</div>
@@ -306,7 +328,7 @@ const Alert = () => {
               timestamp={alert.timestamp}
               isRead={alert.isRead}
               onMarkAsRead={() => handleMarkAsRead(alert.id)}
-              onDismiss={() => handleDismissAlert(alert.id)}
+              onDismiss={() => handleDismissAlert(alert)}
             />
           ))
         )}
@@ -348,35 +370,55 @@ const Alert = () => {
       <div className="card mt-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('alertGuidelines')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+          <div className="p-4 rounded-lg border border-red-400/25 bg-red-500/10">
             <div className="flex items-center mb-2">
               <span className="text-2xl mr-2">🔴</span>
-              <h4 className="font-semibold text-red-800">{t('criticalAlerts')}</h4>
+              <h4 className="font-semibold text-red-200">{t('criticalAlerts')}</h4>
             </div>
-            <p className="text-sm text-red-600">
+            <p className="text-sm text-red-100/80">
               {t('criticalAlertsDesc')}
             </p>
           </div>
-          <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+          <div className="p-4 rounded-lg border border-amber-400/25 bg-amber-500/10">
             <div className="flex items-center mb-2">
               <span className="text-2xl mr-2">🟡</span>
-              <h4 className="font-semibold text-yellow-800">{t('warningAlerts')}</h4>
+              <h4 className="font-semibold text-amber-200">{t('warningAlerts')}</h4>
             </div>
-            <p className="text-sm text-yellow-600">
+            <p className="text-sm text-amber-100/80">
               {t('warningAlertsDesc')}
             </p>
           </div>
-          <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+          <div className="p-4 rounded-lg border border-emerald-400/25 bg-emerald-500/10">
             <div className="flex items-center mb-2">
               <span className="text-2xl mr-2">🟢</span>
-              <h4 className="font-semibold text-green-800">{t('safeStatus')}</h4>
+              <h4 className="font-semibold text-emerald-200">{t('safeStatus')}</h4>
             </div>
-            <p className="text-sm text-green-600">
+            <p className="text-sm text-emerald-100/80">
               {t('safeStatusDesc')}
             </p>
           </div>
         </div>
       </div>
+
+      {pendingDelete ? (
+        <div className="aq-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-alert-title">
+          <div className="card aq-modal">
+            <h3 id="delete-alert-title" className="text-lg font-semibold mb-2">Unread alert</h3>
+            <p className="text-sm text-cyan-100/80 mb-4">
+              You haven&apos;t read this yet. Are you sure you want to delete it?
+            </p>
+            <p className="text-xs text-cyan-200/60 mb-5">{pendingDelete.title}</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setPendingDelete(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button type="button" className="btn-modern" onClick={() => actuallyDeleteAlert(pendingDelete.id)} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

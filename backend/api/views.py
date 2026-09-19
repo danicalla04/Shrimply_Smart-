@@ -30,6 +30,7 @@ import os
 import random
 from datetime import datetime, timedelta, date, time
 from django.db.models import Avg, Sum, Count
+from django.db.models.functions import TruncMinute, TruncHour, TruncDay
 import json
 from django.conf import settings
 import hmac
@@ -278,6 +279,86 @@ class StandardPagination(PageNumberPagination):
     max_page_size = 100
 
 
+def _sensor_window_hours(request, default=24):
+    hours = request.query_params.get('hours')
+    days = request.query_params.get('days')
+    if hours not in (None, ''):
+        try:
+            return max(0.05, float(hours))
+        except (ValueError, TypeError):
+            pass
+    if days not in (None, ''):
+        try:
+            return max(0.05, float(days) * 24.0)
+        except (ValueError, TypeError):
+            pass
+    return default
+
+
+def _chart_bucket_count(hours, max_points):
+    if hours <= 0.4:
+        return min(60, max_points)
+    if hours <= 2:
+        return min(60, max_points)
+    if hours <= 36:
+        return min(96, max_points)
+    if hours <= 200:
+        return min(84, max_points)
+    return min(120, max_points)
+
+
+def _aware_ts(ts):
+    if ts is None:
+        return None
+    if timezone.is_naive(ts):
+        return timezone.make_aware(ts, timezone.utc)
+    return ts
+
+
+def _mean(values):
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 3)
+
+
+def _time_bucket_chart(rows, start, end, bucket_count):
+    start = _aware_ts(start) or timezone.now()
+    end = _aware_ts(end) or timezone.now()
+    span = max(1.0, (end - start).total_seconds())
+    bucket_count = max(8, int(bucket_count))
+    width = span / bucket_count
+    acc = [{'t': [], 'p': [], 'u': [], 'd': []} for _ in range(bucket_count)]
+    start_epoch = start.timestamp()
+
+    for row in rows:
+        ts = _aware_ts(row.get('timestamp'))
+        if ts is None:
+            continue
+        idx = int((ts.timestamp() - start_epoch) / width)
+        if idx < 0 or idx >= bucket_count:
+            if idx == bucket_count:
+                idx = bucket_count - 1
+            else:
+                continue
+        acc[idx]['t'].append(row.get('temperature'))
+        acc[idx]['p'].append(row.get('ph'))
+        acc[idx]['u'].append(row.get('turbidity'))
+        acc[idx]['d'].append(row.get('tds'))
+
+    results = []
+    for i, bucket in enumerate(acc):
+        ts = start + timedelta(seconds=width * (i + 0.5))
+        results.append({
+            'timestamp': ts.isoformat(),
+            'temperature': _mean(bucket['t']),
+            'ph': _mean(bucket['p']),
+            'turbidity': _mean(bucket['u']),
+            'tds': _mean(bucket['d']),
+        })
+    return results
+
+
 class SensorReadingViewSet(viewsets.ModelViewSet):
     queryset = SensorReading.objects.all()
     serializer_class = SensorReadingSerializer
@@ -346,22 +427,33 @@ class SensorReadingViewSet(viewsets.ModelViewSet):
         except SensorReading.DoesNotExist:
             return Response({'error': 'No sensor readings found'}, status=404)
 
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    def chart(self, request):
+        """Evenly sampled history for charts. ``?hours=1`` (or ``?days=7``) and optional ``max_points``."""
+        hours = _sensor_window_hours(request, default=1)
+        try:
+            max_points = min(max(20, int(request.query_params.get('max_points', 160))), 400)
+        except (ValueError, TypeError):
+            max_points = 160
+        now = timezone.now()
+        start = now - timedelta(hours=hours)
+        qs = SensorReading.objects.filter(timestamp__gte=start, timestamp__lte=now).order_by('timestamp')
+        rows = list(qs.values('timestamp', 'temperature', 'ph', 'turbidity', 'tds'))
+        results = _time_bucket_chart(rows, start, now, _chart_bucket_count(hours, max_points))
+        return Response({'hours': hours, 'count': len(results), 'results': results})
+
     def list(self, request, *args, **kwargs):
-        """List sensor readings with optional day filter and pagination.
+        """List sensor readings with optional day/hour filter and pagination.
 
-        Supports ``?days=N`` to limit to the last *N* days and standard
-        ``?page=N&page_size=N`` pagination query params.
+        Supports ``?hours=N`` or ``?days=N`` plus ``?page=N&page_size=N``.
         """
-        days = request.query_params.get('days')
         queryset = self.get_queryset()
-
-        if days:
-            try:
-                days_int = int(days)
-                cutoff = timezone.now() - timedelta(days=days_int)
-                queryset = queryset.filter(timestamp__gte=cutoff)
-            except (ValueError, TypeError):
-                pass
+        hours = request.query_params.get('hours')
+        days = request.query_params.get('days')
+        if hours not in (None, '') or days not in (None, ''):
+            window = _sensor_window_hours(request, default=24)
+            cutoff = timezone.now() - timedelta(hours=window)
+            queryset = queryset.filter(timestamp__gte=cutoff)
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -748,6 +840,19 @@ class AlertViewSet(viewsets.ModelViewSet):
             ) or p in AlertService.SENSOR_PARAMS:
                 AlertService.snooze_until_online(p)
         return Response({'resolved_count': count})
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete an alert. Snooze reconnect-style params so they are not immediately recreated."""
+        alert = self.get_object()
+        param = alert.parameter
+        if param in (
+            'sensor_offline',
+            'feeder_connection',
+            'feeder_level',
+            'feeder_capacity',
+        ) or param in AlertService.SENSOR_PARAMS:
+            AlertService.snooze_until_online(param)
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['delete'])
     def cleanup(self, request):
@@ -1979,6 +2084,51 @@ def weather(request):
     except KeyError as e:
         return Response({'error': f'Invalid API response: {str(e)}'}, status=502)
 
+def _wmo_description(code):
+    labels = {
+        0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+        45: 'Fog', 48: 'Depositing rime fog',
+        51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle',
+        61: 'Slight rain', 63: 'Rain', 65: 'Heavy rain',
+        71: 'Slight snow', 73: 'Snow', 75: 'Heavy snow',
+        80: 'Rain showers', 81: 'Rain showers', 82: 'Violent rain showers',
+        95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Thunderstorm with hail',
+    }
+    try:
+        return labels.get(int(code), 'Mixed conditions')
+    except (TypeError, ValueError):
+        return 'Mixed conditions'
+
+
+def fetch_open_meteo_current(city='Calapan'):
+    """Live Calapan snapshot when the ML predictor or OpenWeather is down."""
+    import requests
+    lat, lon = 13.4117, 121.1803
+    url = (
+        'https://api.open-meteo.com/v1/forecast'
+        f'?latitude={lat}&longitude={lon}'
+        '&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,pressure_msl'
+        '&wind_speed_unit=kmh&timezone=Asia/Manila'
+    )
+    response = requests.get(url, timeout=12)
+    response.raise_for_status()
+    current = (response.json() or {}).get('current') or {}
+    temp = current.get('temperature_2m')
+    wind = current.get('wind_speed_10m')
+    return {
+        'city': city,
+        'country': 'Philippines',
+        'latitude': lat,
+        'longitude': lon,
+        'temperature': round(temp, 1) if temp is not None else None,
+        'description': _wmo_description(current.get('weather_code')),
+        'humidity': current.get('relative_humidity_2m'),
+        'windKmh': round(wind, 1) if wind is not None else None,
+        'pressure': current.get('pressure_msl'),
+        'source': 'open-meteo',
+    }
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def weather_current(request):
@@ -1987,15 +2137,16 @@ def weather_current(request):
     
     try:
         predictor = get_weather_predictor()
-        if not predictor:
-            return Response({'error': 'Weather service is still loading'}, status=503)
-        current_weather = predictor.get_current_weather_enhanced(city)
-        if not current_weather:
-            return Response({'error': f'Weather data not available for {city}'}, status=404)
-        
-        return Response(current_weather)
+        if predictor:
+            current_weather = predictor.get_current_weather_enhanced(city)
+            if current_weather:
+                return Response(current_weather)
+        return Response(fetch_open_meteo_current(city))
     except Exception as e:
-        return Response({'error': f'Error fetching current weather: {str(e)}'}, status=500)
+        try:
+            return Response(fetch_open_meteo_current(city))
+        except Exception:
+            return Response({'error': f'Error fetching current weather: {str(e)}'}, status=500)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -2218,6 +2369,26 @@ def weather_municipalities(request):
     except Exception as e:
         return Response({'error': f'Error fetching municipalities: {str(e)}'}, status=500)
 
+# Same shrimp table as frontend/src/services/sensorLabels.js
+_SHRIMP_LABEL_BANDS = {
+    'temperature': [(-float('inf'), 25.999, 'bad'), (26, 32, 'good'), (32.001, float('inf'), 'bad')],
+    'ph': [(-float('inf'), 6.999, 'bad'), (7, 7, 'good'), (7.001, float('inf'), 'bad')],
+    'turbidity': [(-float('inf'), 4.999, 'bad'), (5, 25, 'good'), (25.001, float('inf'), 'bad')],
+    'tds': [(-float('inf'), 99.999, 'bad'), (100, 500, 'good'), (500.001, float('inf'), 'bad')],
+}
+
+
+def _shrimp_label_tone(param, value):
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return 'neutral'
+    for lo, hi, tone in _SHRIMP_LABEL_BANDS.get(param, []):
+        if lo <= n <= hi:
+            return tone
+    return 'bad'
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def water_quality_status(request):
@@ -2291,6 +2462,7 @@ def water_quality_status(request):
 
             is_optimal = ranges['min'] <= value <= ranges['max']
             status_label = 'optimal' if is_optimal else 'suboptimal'
+            label_tone = _shrimp_label_tone(param, value)
 
             if not is_optimal:
                 all_good = False
@@ -2298,10 +2470,13 @@ def water_quality_status(request):
                     issues.append(f"{ranges['name']} is too low ({value:.1f})")
                 else:
                     issues.append(f"{ranges['name']} is too high ({value:.1f})")
+            if label_tone != 'good':
+                issues.append(f"{ranges['name']} is {label_tone} for shrimp ({value:.1f})")
 
             parameters[param] = {
                 'value': value,
                 'status': status_label,
+                'label_tone': label_tone,
                 'min': ranges['min'],
                 'max': ranges['max'],
                 'unit': ranges.get('unit', '')
@@ -2310,16 +2485,25 @@ def water_quality_status(request):
         # Threshold-based baseline (ignore disconnected sensors for "all good")
         connected = [p for p in parameters.values() if p['status'] != 'disconnected']
         all_good = all(p['status'] == 'optimal' for p in connected) if connected else False
-        threshold_status = 'good' if all_good and not disconnected else ('caution' if disconnected and all_good else 'poor')
-        if disconnected and all_good:
+        labels_good = all(p.get('label_tone') == 'good' for p in connected) if connected else False
+        threshold_status = 'good' if labels_good and not disconnected else ('caution' if disconnected and labels_good else 'poor')
+        if disconnected and labels_good:
             threshold_message = (
                 f'{len(disconnected)} sensor(s) disconnected: {", ".join(disconnected)}. '
-                f'Connected sensors are within your Settings ranges.'
+                f'Connected sensors are in the good range for shrimp.'
             )
-        elif all_good:
-            threshold_message = 'All parameters are within the ranges you set in Settings'
+        elif labels_good:
+            threshold_message = 'All parameters are in the good range for shrimp'
         else:
-            threshold_message = 'Some parameters are outside the ranges you set in Settings'
+            poor_names = [
+                key for key, p in parameters.items()
+                if p.get('status') != 'disconnected' and p.get('label_tone') != 'good'
+            ]
+            threshold_message = (
+                'Not good for shrimp: ' + ', '.join(poor_names)
+                if poor_names else
+                'Some parameters are outside the good range for shrimp'
+            )
         threshold_score = (
             sum(1 for p in connected if p['status'] == 'optimal') / len(connected) * 100
         ) if connected else 0
@@ -2343,9 +2527,8 @@ def water_quality_status(request):
         except Exception as e:
             logger.warning(f'Water quality ML skipped: {e}')
 
-        # Thresholds win when sensors are disconnected or out of Settings ranges.
-        # Prevents false "Normal (78%)" while cards show BAD / OFF.
-        if ml_result and all_good and not disconnected:
+        # Label table wins over ML. Prevents "GOOD / Normal" while cards show Poor.
+        if ml_result and labels_good and not disconnected:
             overall_status = ml_result['status']
             ml_class = ml_result['ml_class']
             quality_score = ml_result['quality_score']
@@ -2353,26 +2536,23 @@ def water_quality_status(request):
             conf_txt = f' ({conf:.0f}% confidence)' if conf is not None else ''
             message = (
                 f'ML water quality: {ml_class}{conf_txt}. '
-                f'Threshold check: {threshold_message.lower()}.'
+                f'Table check: {threshold_message.lower()}.'
             )
             assessment_mode = 'ml+threshold'
         else:
             overall_status = threshold_status
             quality_score = threshold_score
-            if ml_result and (not all_good or disconnected):
+            if ml_result and (not labels_good or disconnected):
                 conf = ml_result.get('confidence')
                 conf_txt = f' ({conf:.0f}% confidence)' if conf is not None else ''
                 message = (
                     f'{threshold_message}. '
                     f'ML suggested {ml_result["ml_class"]}{conf_txt} but was overridden '
-                    f'because sensors are out of range or disconnected.'
+                    f'because a parameter is Poor for shrimp or a sensor is disconnected.'
                 )
                 assessment_mode = 'threshold-priority'
-            elif not ml_result and (disconnected or not all_good):
-                message = (
-                    f'{threshold_message}. '
-                    f'ML not applied (need all 4 valid sensor readings).'
-                )
+            elif not ml_result and (disconnected or not labels_good):
+                message = threshold_message
                 assessment_mode = 'threshold-based'
             else:
                 message = threshold_message
@@ -2706,21 +2886,100 @@ class SeasonViewSet(viewsets.ModelViewSet):
     # GET /api/seasons/{id}/sensor_averages/
     @action(detail=True, methods=['get'])
     def sensor_averages(self, request, pk=None):
-        """Return average sensor readings during this season's date range."""
-        from django.db.models import Avg
+        """Season averages for week / month / whole season, each split day/night/all hours."""
+        from django.utils.timezone import get_current_timezone
+        from zoneinfo import ZoneInfo
+
+        def pack_rows(rows):
+            def avg(key):
+                vals = [row.get(key) for row in rows if row.get(key) is not None]
+                return (sum(vals) / len(vals)) if vals else None
+            return {
+                'temperature': avg('temperature'),
+                'ph': avg('ph'),
+                'turbidity': avg('turbidity'),
+                'tds': avg('tds'),
+                'reading_count': len(rows),
+            }
+
+        def manila_hour(ts, manila):
+            if ts is None:
+                return None
+            if timezone.is_aware(ts):
+                return ts.astimezone(manila).hour
+            return ts.hour
+
+        def aware_ts(ts):
+            if ts is None:
+                return None
+            if timezone.is_aware(ts):
+                return ts
+            try:
+                return timezone.make_aware(ts, timezone.utc)
+            except Exception:
+                return ts
+
+        def since(rows, start):
+            out = []
+            for row in rows:
+                ts = aware_ts(row.get('timestamp'))
+                if ts is None:
+                    continue
+                if ts >= start:
+                    out.append(row)
+            return out
+
+        def split_pack(rows):
+            day_rows, night_rows = [], []
+            for row in rows:
+                hour = manila_hour(row.get('timestamp'), manila)
+                if hour is None:
+                    continue
+                if 8 <= hour < 20:
+                    day_rows.append(row)
+                else:
+                    night_rows.append(row)
+            return {
+                'day': pack_rows(day_rows),
+                'night': pack_rows(night_rows),
+                'all': pack_rows(rows),
+            }
+
         season = self.get_object()
-        end = season.end_date or timezone.now().date()
-        readings = SensorReading.objects.filter(
-            timestamp__date__gte=season.start_date,
-            timestamp__date__lte=end,
-        )
-        avgs = readings.aggregate(
-            avg_temp=Avg('temperature'),
-            avg_ph=Avg('ph'),
-            avg_do=Avg('turbidity'),
-            avg_tds=Avg('tds'),
-        )
-        return Response(avgs)
+        tz = get_current_timezone()
+        end_date = season.end_date or timezone.now().date()
+        start_dt = timezone.make_aware(datetime.combine(season.start_date, time.min), tz)
+        end_dt = timezone.make_aware(datetime.combine(end_date, time.max), tz)
+        readings = SensorReading.objects.filter(timestamp__gte=start_dt, timestamp__lte=end_dt)
+        if not readings.exists() and season.end_date is None:
+            readings = SensorReading.objects.filter(timestamp__gte=start_dt)
+        if not readings.exists() and season.end_date is None:
+            readings = SensorReading.objects.all()
+
+        manila = ZoneInfo('Asia/Manila')
+        now = timezone.now()
+        rows = list(readings.values('temperature', 'ph', 'turbidity', 'tds', 'timestamp'))
+        week = split_pack(since(rows, now - timedelta(days=7)))
+        month = split_pack(since(rows, now - timedelta(days=30)))
+        season_pack = split_pack(rows)
+        hours24 = season_pack['all']
+        return Response({
+            'week': week,
+            'month': month,
+            'season': season_pack,
+            'day': season_pack['day'],
+            'night': season_pack['night'],
+            'hours24': hours24,
+            'temperature': hours24.get('temperature'),
+            'ph': hours24.get('ph'),
+            'turbidity': hours24.get('turbidity'),
+            'tds': hours24.get('tds'),
+            'reading_count': hours24.get('reading_count') or 0,
+            'avg_temp': hours24.get('temperature'),
+            'avg_ph': hours24.get('ph'),
+            'avg_do': hours24.get('turbidity'),
+            'avg_tds': hours24.get('tds'),
+        })
 
     # PATCH /api/seasons/{id}/update_stocking/
     @action(detail=True, methods=['patch'])

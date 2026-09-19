@@ -73,6 +73,24 @@ export async function fetchAlertsByParameter(parameter, days = 7) {
   }
 }
 
+export async function deleteAlert(id) {
+  try {
+    const response = await authService.apiCall(`${API_BASE}/alerts/${id}/`, {
+      method: 'DELETE',
+    })
+    if (!response.ok) {
+      throw new Error(`Delete failed (${response.status})`)
+    }
+    if (response.status !== 204 && typeof response.json === 'function') {
+      try { return await response.json() } catch { return {} }
+    }
+    return {}
+  } catch (error) {
+    console.error('Failed to delete alert:', error)
+    throw error
+  }
+}
+
 export async function resolveAlert(id) {
   try {
     const response = await authService.apiCall(`${API_BASE}/alerts/${id}/resolve/`, {

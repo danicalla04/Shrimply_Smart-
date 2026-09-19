@@ -77,11 +77,11 @@ export default function MunicipalitySelector({ value, onChange, disabled = false
         value={value?.key || 'calapan'}
         onChange={handleChange}
         disabled={disabled || loading}
-        className={`w-full px-4 py-2 border border-gray-300 rounded-lg appearance-none cursor-pointer font-medium
+        className={`w-full px-4 py-2 border rounded-lg appearance-none cursor-pointer font-medium
           ${
             disabled || loading
-              ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
-              : 'bg-white text-gray-900 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500'
+              ? 'border-cyan-400/15 bg-slate-950/40 text-cyan-200/50 cursor-not-allowed'
+              : 'border-cyan-400/20 bg-slate-950/40 text-cyan-50 hover:border-cyan-300/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/40'
           }
         `}
         style={{
@@ -132,17 +132,17 @@ export default function MunicipalitySelector({ value, onChange, disabled = false
       {value && (
         <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-1">
           {value.is_primary && (
-            <span className="px-2 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded whitespace-nowrap">
+            <span className="px-2 py-1 bg-amber-500/20 text-amber-200 text-xs font-bold rounded whitespace-nowrap">
               ⭐ PRIMARY
             </span>
           )}
           {value.model_available && (
-            <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-bold rounded whitespace-nowrap">
+            <span className="px-2 py-1 bg-emerald-500/20 text-emerald-200 text-xs font-bold rounded whitespace-nowrap">
               ✓ ML Ready
             </span>
           )}
           {value.is_coastal && !value.is_primary && (
-            <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-bold rounded whitespace-nowrap">
+            <span className="px-2 py-1 bg-sky-500/20 text-sky-200 text-xs font-bold rounded whitespace-nowrap">
               🌊 Coastal
             </span>
           )}

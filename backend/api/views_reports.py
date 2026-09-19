@@ -7,7 +7,8 @@ from django.utils import timezone
 from django.db.models import Avg, Min, Max, Count
 from datetime import datetime, time, timedelta
 from collections import defaultdict
-import json, csv, io, logging
+import json, csv, io, logging, re
+from html import escape as html_escape
 
 from .models import (
     Report, SensorReading, Alert, FeedingLog, HistorySettings,
@@ -663,34 +664,269 @@ def _season_daily_totals(daily_rows):
     }
 
 
+def _fmt_num(v, suffix=''):
+    if v is None or v == '':
+        return '—'
+    if isinstance(v, float):
+        v = round(v, 2)
+    return f'{v}{suffix}'
+
+
+def _series(daily, key):
+    return [r[key] for r in daily if r.get(key) is not None]
+
+
+def _email_sensor_rows(summary):
+    """Avg/min/max from live sensor_data, then seasonal daily_rows/totals."""
+    daily = summary.get('daily_rows') or []
+    sd = summary.get('sensor_data') or {}
+    totals = summary.get('totals') or {}
+    specs = [
+        ('temperature', 'Temperature', ' °C', 'avg_temperature'),
+        ('ph', 'pH', '', 'avg_ph'),
+        ('turbidity', 'Turbidity', ' NTU', 'avg_turbidity'),
+        ('tds', 'TDS', ' ppm', 'avg_tds'),
+    ]
+    rows = []
+    for key, label, unit, dkey in specs:
+        existing = sd.get(key) or {}
+        vals = _series(daily, dkey)
+        avg, mn, mx = existing.get('avg'), existing.get('min'), existing.get('max')
+        if avg is None and totals.get(dkey) is not None:
+            avg = totals.get(dkey)
+        if vals:
+            if avg is None:
+                avg = round(sum(vals) / len(vals), 2)
+            if mn is None:
+                mn = round(min(vals), 2)
+            if mx is None:
+                mx = round(max(vals), 2)
+        rows.append((label, _fmt_num(avg, unit), _fmt_num(mn), _fmt_num(mx)))
+    return rows
+
+
+def _csv_bytes(headers, rows):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([h[1] for h in headers])
+    for row in rows:
+        writer.writerow(['' if row.get(k) is None else row.get(k) for k, _label in headers])
+    return buf.getvalue().encode('utf-8')
+
+
+def _safe_filename(name):
+    return re.sub(r'[^\w\-]+', '_', str(name or 'report')).strip('_') or 'report'
+
+
+def _autosize(ws):
+    from openpyxl.utils import get_column_letter
+    for col in ws.columns:
+        letter = get_column_letter(col[0].column)
+        width = 12
+        for cell in col:
+            if cell.value is not None:
+                width = max(width, min(32, len(str(cell.value)) + 2))
+        ws.column_dimensions[letter].width = width
+
+
+def _report_xlsx_bytes(report, summary):
+    """Build an .xlsx matching the in-app Excel export."""
+    from openpyxl import Workbook
+
+    season = summary.get('season') or {}
+    daily = summary.get('daily_rows') or []
+    totals = summary.get('totals') or {}
+    gf = summary.get('growth_forecast') or {}
+    period = summary.get('period') or {}
+    sd = summary.get('sensor_data') or {}
+
+    daily_headers = [
+        ('date', 'Date'),
+        ('shrimp_count', 'Shrimp qty'),
+        ('avg_weight_grams', 'Avg wt (g)'),
+        ('avg_temperature', 'Avg Temperature (°C)'),
+        ('avg_ph', 'Avg pH'),
+        ('avg_turbidity', 'Avg Turbidity (NTU)'),
+        ('avg_tds', 'Avg TDS (ppm)'),
+        ('weather_temperature', 'Weather Temp (°C)'),
+        ('weather_condition', 'Weather Condition'),
+        ('weather_precipitation_mm', 'Precipitation (mm)'),
+        ('weather_humidity', 'Humidity (%)'),
+        ('feed_kg', 'Feed (kg)'),
+        ('feed_events', 'Feed Events'),
+        ('harvest_kg', 'Harvest (kg)'),
+    ]
+    gf_headers = [
+        ('date', 'Date'),
+        ('doc', 'DOC'),
+        ('feed_kg', 'Feed (kg)'),
+        ('weather_temperature', 'Weather Temp (°C)'),
+        ('weather_precipitation_mm', 'Precipitation (mm)'),
+        ('weather_humidity', 'Humidity (%)'),
+        ('wq_class', 'WQ Class'),
+        ('abw_predicted', 'ABW Predicted (g)'),
+        ('abw_observed', 'ABW Observed (g)'),
+        ('adg_predicted', 'ADG Predicted (g/day)'),
+        ('adg_modifier', 'ADG Modifier'),
+        ('biomass_kg_predicted', 'Biomass Predicted (kg)'),
+    ]
+
+    wb = Workbook()
+
+    if report.report_type == 'seasonal':
+        ws = wb.active
+        ws.title = 'Season Daily'
+        ws.append([h[1] for h in daily_headers])
+        for row in daily:
+            ws.append([row.get(k) for k, _ in daily_headers])
+        ws.append([
+            'TOTAL', '', '',
+            totals.get('avg_temperature'), totals.get('avg_ph'),
+            totals.get('avg_turbidity'), totals.get('avg_tds'),
+            totals.get('avg_weather_temperature'), '', '', '',
+            totals.get('total_feed_kg') or totals.get('total_feed_grams'),
+            totals.get('total_feed_events'),
+            totals.get('total_harvest_kg'),
+        ])
+        _autosize(ws)
+
+        ws2 = wb.create_sheet('Overview')
+        harvest = summary.get('harvest') or {}
+        overview = [
+            ['Seasonal Report', report.title],
+            ['Season', season.get('name')],
+            ['Start Date', season.get('start_date') or period.get('start')],
+            ['End Date', season.get('end_date') or period.get('end') or 'Active'],
+            ['Status', 'Active' if season.get('is_active') else 'Ended'],
+            ['Days with data', totals.get('days_with_data') or len(daily)],
+            ['Total feed (kg)', totals.get('total_feed_kg') or totals.get('total_feed_grams')],
+            ['Total harvest (kg)', totals.get('total_harvest_kg') or harvest.get('total_kg')],
+            ['Initial shrimp qty', season.get('initial_shrimp_quantity')],
+            ['Current shrimp qty', season.get('current_shrimp_quantity')],
+            ['Avg shrimp weight (g)', season.get('average_shrimp_weight_grams')],
+        ]
+        for pair in overview:
+            ws2.append(pair)
+        _autosize(ws2)
+
+        gf_table = gf.get('feature_table') or gf.get('feature_table_preview') or []
+        if gf or gf_table:
+            ws3 = wb.create_sheet('Growth Forecast')
+            ws3.append([h[1] for h in gf_headers])
+            for row in gf_table:
+                ws3.append([row.get(k) for k, _ in gf_headers])
+            ws3.append([])
+            ws3.append(['Predicted harvest (kg)', gf.get('predicted_harvest_kg')])
+            ws3.append(['Actual harvest (kg)', gf.get('actual_harvest_kg')])
+            ws3.append(['Final ABW (g)', gf.get('final_abw_g')])
+            ws3.append(['Model', (gf.get('meta') or {}).get('model_version')])
+            for i, rec in enumerate(gf.get('recommendations') or [], start=1):
+                ws3.append([f'Recommendation {i}', rec.get('message')])
+            _autosize(ws3)
+    else:
+        ws = wb.active
+        ws.title = 'Report'
+        if daily:
+            ws.append([h[1] for h in daily_headers])
+            for row in daily:
+                ws.append([row.get(k) for k, _ in daily_headers])
+        else:
+            ws.append(['Parameter', 'Avg', 'Min', 'Max'])
+            for key, label in [('temperature', 'Temperature'), ('ph', 'pH'), ('turbidity', 'Turbidity'), ('tds', 'TDS')]:
+                d = sd.get(key) or {}
+                ws.append([label, d.get('avg'), d.get('min'), d.get('max')])
+        _autosize(ws)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def _email_report(report, email):
-    """Send an HTML email with the report and a CSV attachment."""
+    """Send HTML email of the generated report, with Excel plus CSV attachments."""
     from django.core.mail import EmailMessage
     from django.conf import settings as django_settings
 
-    # Validate email address
     if not email or '@' not in email:
         raise ValueError(f'Invalid email address: {email}')
 
     summary = report.summary if isinstance(report.summary, dict) else json.loads(report.summary or '{}')
     insights = report.insights if isinstance(report.insights, list) else json.loads(report.insights or '[]')
-    sd = summary.get('sensor_data', {})
-    period = summary.get('period', {})
 
-    # Build HTML body
-    rows_html = ''
-    for key, label, unit in [
-        ('temperature', 'Temperature', '°C'), ('ph', 'pH', ''),
-        ('turbidity', 'Turbidity', 'NTU'), ('tds', 'TDS', 'ppm'),
-    ]:
-        d = sd.get(key, {})
-        avg = d.get('avg', '—')
-        mn = d.get('min', '—')
-        mx = d.get('max', '—')
-        rows_html += f'<tr><td style="padding:8px;border:1px solid #e5e7eb">{label}</td>'
-        rows_html += f'<td style="padding:8px;border:1px solid #e5e7eb">{avg} {unit}</td>'
-        rows_html += f'<td style="padding:8px;border:1px solid #e5e7eb">{mn}</td>'
-        rows_html += f'<td style="padding:8px;border:1px solid #e5e7eb">{mx}</td></tr>'
+    if report.report_type == 'seasonal' and not (summary.get('daily_rows') or []):
+        try:
+            _attach_seasonal_blocks(report, report.start_date, report.end_date)
+            summary = report.summary if isinstance(report.summary, dict) else summary
+            report.save(update_fields=['summary'])
+        except Exception as exc:
+            logger.warning('Rebuild seasonal blocks for email failed: %s', exc)
+
+    period = summary.get('period') or {}
+    season = summary.get('season') or {}
+    harvest = summary.get('harvest') or {}
+    weather = summary.get('weather') or {}
+    feeding = summary.get('feeding') or {}
+    totals = summary.get('totals') or {}
+    gf = summary.get('growth_forecast') or {}
+    daily = summary.get('daily_rows') or []
+
+    start_label = season.get('start_date') or period.get('start') or ''
+    end_label = season.get('end_date') or period.get('end') or 'Active'
+    if report.report_type == 'seasonal' and not season.get('end_date'):
+        end_label = 'Active'
+
+    sensor_rows_html = ''
+    for label, avg, mn, mx in _email_sensor_rows(summary):
+        sensor_rows_html += (
+            f'<tr><td style="padding:8px;border:1px solid #e5e7eb">{html_escape(label)}</td>'
+            f'<td style="padding:8px;border:1px solid #e5e7eb">{html_escape(str(avg))}</td>'
+            f'<td style="padding:8px;border:1px solid #e5e7eb">{html_escape(str(mn))}</td>'
+            f'<td style="padding:8px;border:1px solid #e5e7eb">{html_escape(str(mx))}</td></tr>'
+        )
+
+    extras_html = ''
+    if report.report_type == 'seasonal':
+        extras_html = f'''
+        <h3>Season Overview</h3>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+          <tr><td style="padding:8px;border:1px solid #e5e7eb">Season</td>
+              <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(str(season.get("name") or "—"))}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #e5e7eb">Status</td>
+              <td style="padding:8px;border:1px solid #e5e7eb">{"Active" if season.get("is_active") else "Ended"}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #e5e7eb">Days with data</td>
+              <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(str(totals.get("days_with_data") or len(daily) or "—"))}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #e5e7eb">Total feed</td>
+              <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(_fmt_num(totals.get("total_feed_kg") or feeding.get("total_kg"), " kg"))}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #e5e7eb">Total harvest</td>
+              <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(_fmt_num(totals.get("total_harvest_kg") or harvest.get("total_kg"), " kg"))}</td></tr>
+          <tr><td style="padding:8px;border:1px solid #e5e7eb">Weather coverage</td>
+              <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(str(weather.get("days_with_data") or "—"))} day(s), avg {html_escape(_fmt_num(weather.get("avg_temperature"), "°C"))}</td></tr>
+        </table>
+        '''
+        if gf:
+            recs = gf.get('recommendations') or []
+            recs_html = ''
+            rec_colors = {'critical': '#fecaca', 'warning': '#fef3c7', 'info': '#dbeafe'}
+            for rec in recs:
+                bg = rec_colors.get(rec.get('type', 'info'), '#f3f4f6')
+                recs_html += (
+                    f'<div style="background:{bg};padding:10px 14px;border-radius:8px;margin-bottom:6px">'
+                    f'{html_escape(str(rec.get("message") or ""))}</div>'
+                )
+            extras_html += f'''
+            <h3>Growth Forecast</h3>
+            <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+              <tr><td style="padding:8px;border:1px solid #e5e7eb">Predicted harvest</td>
+                  <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(_fmt_num(gf.get("predicted_harvest_kg"), " kg"))}</td></tr>
+              <tr><td style="padding:8px;border:1px solid #e5e7eb">Actual harvest</td>
+                  <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(_fmt_num(gf.get("actual_harvest_kg"), " kg"))}</td></tr>
+              <tr><td style="padding:8px;border:1px solid #e5e7eb">Final ABW</td>
+                  <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(_fmt_num(gf.get("final_abw_g"), " g"))}</td></tr>
+              <tr><td style="padding:8px;border:1px solid #e5e7eb">Model</td>
+                  <td style="padding:8px;border:1px solid #e5e7eb">{html_escape(str((gf.get("meta") or {}).get("model_version") or "—"))}</td></tr>
+            </table>
+            {recs_html}
+            '''
 
     insights_html = ''
     colors = {'critical': '#fecaca', 'warning': '#fef3c7', 'info': '#dbeafe'}
@@ -698,23 +934,27 @@ def _email_report(report, email):
         bg = colors.get(ins.get('type', 'info'), '#f3f4f6')
         insights_html += (
             f'<div style="background:{bg};padding:10px 14px;border-radius:8px;margin-bottom:6px">'
-            f'<strong>{ins.get("parameter","").replace("_"," ").title()}</strong>: {ins.get("message","")}</div>'
+            f'<strong>{html_escape(str(ins.get("parameter", "")).replace("_", " ").title())}</strong>: '
+            f'{html_escape(str(ins.get("message", "")))}</div>'
         )
+    if not insights_html:
+        insights_html = '<p style="color:#6b7280">No insights for this report.</p>'
 
-    html = f"""
+    html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto">
       <div style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;padding:20px 24px;border-radius:12px 12px 0 0">
-        <h2 style="margin:0">🦐 {report.title}</h2>
-        <p style="margin:4px 0 0;opacity:.85">{period.get('start','')} — {period.get('end','')}</p>
+        <h2 style="margin:0">🦐 {html_escape(report.title)}</h2>
+        <p style="margin:4px 0 0;opacity:.85">{html_escape(str(start_label))} — {html_escape(str(end_label))}</p>
       </div>
       <div style="padding:20px 24px;border:1px solid #e5e7eb;border-top:none">
+        {extras_html}
         <h3>Sensor Summary</h3>
         <table style="width:100%;border-collapse:collapse">
           <tr style="background:#f0f9ff"><th style="padding:8px;border:1px solid #e5e7eb;text-align:left">Parameter</th>
           <th style="padding:8px;border:1px solid #e5e7eb">Avg</th>
           <th style="padding:8px;border:1px solid #e5e7eb">Min</th>
           <th style="padding:8px;border:1px solid #e5e7eb">Max</th></tr>
-          {rows_html}
+          {sensor_rows_html}
         </table>
         <h3 style="margin-top:18px">Insights</h3>
         {insights_html}
@@ -725,30 +965,88 @@ def _email_report(report, email):
     </div>
     """
 
-    # Build CSV attachment of raw sensor readings
-    start = report.start_date
-    end = report.end_date
-    readings = SensorReading.objects.filter(timestamp__gte=start, timestamp__lte=end).order_by('timestamp')
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(['Timestamp', 'Temperature', 'pH', 'Turbidity', 'TDS'])
-    for r in readings[:2000]:  # cap at 2000 rows
-        writer.writerow([r.timestamp.isoformat(), r.temperature, r.ph, r.turbidity, r.tds])
-    csv_bytes = buf.getvalue().encode('utf-8')
-
     try:
         msg = EmailMessage(
             subject=report.title,
-            body=html,
+            body=html_body,
             from_email=django_settings.DEFAULT_FROM_EMAIL,
             to=[email],
         )
         msg.content_subtype = 'html'
-        msg.attach(f'sensor_data_{period.get("start","")}.csv', csv_bytes, 'text/csv')
+
+        season_name = _safe_filename(season.get('name') or report.title)
+        if daily:
+            daily_headers = [
+                ('date', 'Date'),
+                ('shrimp_count', 'Shrimp qty'),
+                ('avg_weight_grams', 'Avg wt (g)'),
+                ('avg_temperature', 'Avg Temperature (°C)'),
+                ('avg_ph', 'Avg pH'),
+                ('avg_turbidity', 'Avg Turbidity (NTU)'),
+                ('avg_tds', 'Avg TDS (ppm)'),
+                ('weather_temperature', 'Weather Temp (°C)'),
+                ('weather_condition', 'Weather Condition'),
+                ('weather_precipitation_mm', 'Precipitation (mm)'),
+                ('weather_humidity', 'Humidity (%)'),
+                ('feed_kg', 'Feed (kg)'),
+                ('feed_events', 'Feed Events'),
+                ('harvest_kg', 'Harvest (kg)'),
+            ]
+            msg.attach(
+                f'{season_name}_{start_label}_to_{end_label}_daily.csv',
+                _csv_bytes(daily_headers, daily),
+                'text/csv',
+            )
+        gf_table = gf.get('feature_table') or gf.get('feature_table_preview') or []
+        if gf_table:
+            gf_headers = [
+                ('date', 'Date'),
+                ('doc', 'DOC'),
+                ('feed_kg', 'Feed (kg)'),
+                ('weather_temperature', 'Weather Temp (°C)'),
+                ('weather_precipitation_mm', 'Precipitation (mm)'),
+                ('weather_humidity', 'Humidity (%)'),
+                ('wq_class', 'WQ Class'),
+                ('abw_predicted', 'ABW Predicted (g)'),
+                ('abw_observed', 'ABW Observed (g)'),
+                ('adg_predicted', 'ADG Predicted (g/day)'),
+                ('adg_modifier', 'ADG Modifier'),
+                ('biomass_kg_predicted', 'Biomass Predicted (kg)'),
+            ]
+            msg.attach(
+                f'{season_name}_growth_forecast.csv',
+                _csv_bytes(gf_headers, gf_table),
+                'text/csv',
+            )
+        if not daily:
+            start = report.start_date
+            end = report.end_date
+            readings = SensorReading.objects.filter(timestamp__gte=start, timestamp__lte=end).order_by('timestamp')[:2000]
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(['Timestamp', 'Temperature', 'pH', 'Turbidity', 'TDS'])
+            for r in readings:
+                writer.writerow([r.timestamp.isoformat(), r.temperature, r.ph, r.turbidity, r.tds])
+            msg.attach(
+                f'sensor_data_{period.get("start") or start_label}.csv',
+                buf.getvalue().encode('utf-8'),
+                'text/csv',
+            )
+
+        try:
+            xlsx_name = f'{season_name}_{start_label}_to_{end_label}.xlsx' if start_label else f'{season_name}.xlsx'
+            msg.attach(
+                xlsx_name,
+                _report_xlsx_bytes(report, summary),
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+        except Exception as exc:
+            logger.warning('Excel attachment failed, sending CSVs only: %s', exc)
+
         result = msg.send(fail_silently=False)
-        logger.info(f'Email sent to {email}: {result} message(s) sent')
+        logger.info('Email sent to %s: %s message(s) sent', email, result)
     except Exception as e:
-        logger.error(f'Failed to send email to {email}: {str(e)}')
+        logger.error('Failed to send email to %s: %s', email, e)
         raise
 
 

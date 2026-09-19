@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { API_BASE } from '../services/apiConfig'
 import { useLanguage } from '../context/LanguageContext'
-import LanguageToggle from '../components/LanguageToggle'
 
 const Register = () => {
     const [form, setForm] = useState({
@@ -56,68 +55,62 @@ const Register = () => {
     }
 
     return (
-        <div className="min-h-screen modern-bg flex items-center justify-center p-4 relative overflow-hidden">
-            {/* Language Toggle */}
-            <div className="absolute top-4 right-4 z-20">
-                <LanguageToggle compact />
-            </div>
-            {/* Background */}
+        <div className="min-h-screen aq-root-bg login-stage flex items-center justify-center p-4 relative overflow-hidden">
             <div className="absolute inset-0">
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 via-cyan-900/10 to-teal-900/20"></div>
                 <div
-                    className="absolute inset-0 bg-cover bg-center opacity-20 animate-float"
+                    className="login-photo"
                     style={{ backgroundImage: "url('/shrimp_pond_pic/shrimps-pond.jpg')" }}
-                ></div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent"></div>
+                />
+                <div className="login-veil" />
             </div>
-
-            {/* Floating Elements */}
-            <div className="absolute top-20 right-10 w-20 h-20 bg-cyan-400/20 rounded-full blur-xl animate-pulse-glow"></div>
-            <div className="absolute bottom-20 left-10 w-32 h-32 bg-blue-400/20 rounded-full blur-xl animate-float" style={{ animationDelay: '2s' }}></div>
-
+            <div className="login-orbs" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+            </div>
+            <div className="login-bubbles" aria-hidden="true">
+                <span /><span /><span /><span /><span /><span /><span /><span />
+            </div>
             <div className="w-full max-w-md relative z-10">
-                <div className="glass-card p-8 animate-float">
-                    {/* Logo */}
+                <div className="card p-8 login-card">
                     <div className="text-center mb-6">
-                        <div className="relative inline-block">
-                            <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse-glow mx-auto mb-3">
-                                <span className="text-3xl">🦐</span>
-                            </div>
+                        <div className="aq-logo login-logo mx-auto mb-3" style={{ width: 64, height: 64 }}>
+                            <img src="/shrimply-logo.jpg" alt="" />
                         </div>
-                        <h1 className="text-2xl font-bold text-gradient mb-1">{t('createAccount')}</h1>
-                        <p className="text-slate-600 text-sm">{t('joinSmart')}</p>
+                        <h1 className="aq-title mt-2">{t('createAccount')}</h1>
+                        <p className="aq-sub">{t('joinSmart')}</p>
                     </div>
 
                     {/* Form */}
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label htmlFor="first_name" className="block text-xs font-semibold text-slate-700 mb-1">{t('firstName')}</label>
+                                <label htmlFor="first_name" className="block text-xs font-semibold mb-1 text-cyan-100">{t('firstName')}</label>
                                 <input id="first_name" name="first_name" type="text" className="input-modern text-sm" placeholder="Juan" value={form.first_name} onChange={handleChange} />
                             </div>
                             <div>
-                                <label htmlFor="last_name" className="block text-xs font-semibold text-slate-700 mb-1">{t('lastName')}</label>
+                                <label htmlFor="last_name" className="block text-xs font-semibold mb-1 text-cyan-100">{t('lastName')}</label>
                                 <input id="last_name" name="last_name" type="text" className="input-modern text-sm" placeholder="Dela Cruz" value={form.last_name} onChange={handleChange} />
                             </div>
                         </div>
 
                         <div>
-                            <label htmlFor="username" className="block text-xs font-semibold text-slate-700 mb-1">{t('username')} *</label>
+                            <label htmlFor="username" className="block text-xs font-semibold mb-1 text-cyan-100">{t('username')} *</label>
                             <input id="username" name="username" type="text" required className="input-modern text-sm" placeholder={t('chooseUsername')} value={form.username} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label htmlFor="email" className="block text-xs font-semibold text-slate-700 mb-1">{t('email')}</label>
+                            <label htmlFor="email" className="block text-xs font-semibold mb-1 text-cyan-100">{t('email')}</label>
                             <input id="email" name="email" type="email" className="input-modern text-sm" placeholder="you@example.com" value={form.email} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label htmlFor="password" className="block text-xs font-semibold text-slate-700 mb-1">{t('password')} *</label>
+                            <label htmlFor="password" className="block text-xs font-semibold mb-1 text-cyan-100">{t('password')} *</label>
                             <input id="password" name="password" type="password" required className="input-modern text-sm" placeholder={t('minChars')} value={form.password} onChange={handleChange} />
                         </div>
 
                         <div>
-                            <label htmlFor="password2" className="block text-xs font-semibold text-slate-700 mb-1">{t('confirmPassword')} *</label>
+                            <label htmlFor="password2" className="block text-xs font-semibold mb-1 text-cyan-100">{t('confirmPassword')} *</label>
                             <input id="password2" name="password2" type="password" required className="input-modern text-sm" placeholder={t('repeatPassword')} value={form.password2} onChange={handleChange} />
                         </div>
 
@@ -147,9 +140,9 @@ const Register = () => {
 
                     {/* Link to Login */}
                     <div className="text-center mt-5">
-                        <p className="text-sm text-slate-600">
+                        <p className="text-sm text-cyan-200/70">
                             {t('alreadyHaveAccount')}{' '}
-                            <Link to="/login" className="text-cyan-600 hover:text-cyan-700 font-semibold">{t('signIn')}</Link>
+                            <Link to="/login" className="text-cyan-300 font-semibold">{t('signIn')}</Link>
                         </p>
                     </div>
                 </div>

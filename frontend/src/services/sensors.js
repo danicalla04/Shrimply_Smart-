@@ -9,6 +9,14 @@ export const DEFAULT_SENSORS = Object.freeze({
   tds: null,
 })
 
+export const SENSOR_STALE_MS = 15_000
+
+export function isSensorStreamFresh(timestamp, now = Date.now()) {
+  if (!timestamp) return false
+  const age = now - new Date(timestamp).getTime()
+  return Number.isFinite(age) && age >= 0 && age <= SENSOR_STALE_MS
+}
+
 export function getDefaultSensors() {
   return JSON.parse(JSON.stringify(DEFAULT_SENSORS))
 }
@@ -79,10 +87,16 @@ export async function updateSensors(data) {
 }
 
 // Get historical sensor readings for charts (supports pagination)
-export async function getSensorReadings(days = 7, page = 1, pageSize = 20) {
+export async function getSensorReadings(days = 7, page = 1, pageSize = 20, hours = null) {
   try {
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    })
+    if (hours != null) params.set('hours', String(hours))
+    else if (days != null) params.set('days', String(days))
     const response = await authService.apiCall(
-      `${API_BASE}/sensors/?days=${days}&page=${page}&page_size=${pageSize}`
+      `${API_BASE}/sensors/?${params.toString()}`
     )
     const data = response?.data ?? (typeof response?.json === 'function' ? await response.json() : response)
     // Handle DRF paginated response
@@ -94,5 +108,24 @@ export async function getSensorReadings(days = 7, page = 1, pageSize = 20) {
   } catch (error) {
     console.error('Failed to fetch sensor readings:', error)
     return { count: 0, results: [], next: null, previous: null }
+  }
+}
+
+export async function getSensorChart(hours = 1, maxPoints = 160) {
+  try {
+    const params = new URLSearchParams({
+      hours: String(hours),
+      max_points: String(maxPoints),
+    })
+    const response = await authService.apiCall(`${API_BASE}/sensors/chart/?${params.toString()}`)
+    const data = response?.data ?? (typeof response?.json === 'function' ? await response.json() : response)
+    return {
+      hours: data?.hours ?? hours,
+      count: data?.count ?? 0,
+      results: Array.isArray(data?.results) ? data.results : [],
+    }
+  } catch (error) {
+    console.error('Failed to fetch sensor chart:', error)
+    return { hours, count: 0, results: [] }
   }
 }

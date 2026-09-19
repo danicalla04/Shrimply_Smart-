@@ -3,7 +3,8 @@ import * as XLSX from 'xlsx';
 import { useLanguage } from '../context/LanguageContext';
 import {
   DEFAULT_FEEDER_STATE,
-  capacityPercent,
+  hopperPercentFromDistance,
+  HOPPER_TEN_PERCENT_CM,
   fetchFeederState,
   updateFeederSettings,
   toggleAutoFeeding,
@@ -37,13 +38,13 @@ function Toggle({ checked, onChange, label }) {
 
 function Stat({ label, value, sub, icon }) {
   return (
-    <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-white to-gray-50 p-6 shadow-md border border-gray-100 hover:shadow-lg transition-all duration-300">
-      {icon && <div className="absolute top-4 right-4 text-3xl opacity-20">{icon}</div>}
-      <div className="text-sm font-medium text-gray-600 uppercase tracking-wide">{label}</div>
-      <div className="mt-2 text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+    <div className="card p-6 relative overflow-hidden">
+      {icon && <div className="absolute top-4 right-4 text-3xl opacity-30">{icon}</div>}
+      <div className="text-sm font-medium text-cyan-200/70 uppercase tracking-wide">{label}</div>
+      <div className="mt-2 text-3xl font-bold text-cyan-100" style={{ fontFamily: 'Orbitron, sans-serif' }}>
         {value}
       </div>
-      {sub && <div className="mt-1 text-xs text-gray-500">{sub}</div>}
+      {sub && <div className="mt-1 text-xs text-cyan-200/50">{sub}</div>}
     </div>
   );
 }
@@ -588,20 +589,18 @@ export default function Feeding() {
 
   const telemetryAgeMs = lastTelemetryTimestamp ? (now - new Date(lastTelemetryTimestamp).getTime()) : Number.POSITIVE_INFINITY;
   const deviceConnected = Number.isFinite(telemetryAgeMs) && telemetryAgeMs >= 0 && telemetryAgeMs <= TELEMETRY_STALE_MS;
-  const capPct = capacityPercent(state);
-  const lowThreshold = Number(state.lowPercent ?? state.low_percent ?? 15);
-  const lowFeed = capPct <= lowThreshold;
+  const ultrasonicConnected = deviceConnected && ultrasonicDistance !== 'NA';
+  const capPct = ultrasonicConnected ? hopperPercentFromDistance(ultrasonicDistance) : null
+  const lowThreshold = 10
+  const lowFeed = capPct != null && capPct <= lowThreshold
 
   const prevDeviceConnected = useRef(null);
   const prevLowFeed = useRef(null);
   const prevUltrasonicOk = useRef(null);
   const prevUltrasonicLow = useRef(null);
-  const ULTRASONIC_LOW_CM = 32;
+  const ULTRASONIC_LOW_CM = HOPPER_TEN_PERCENT_CM;
   const ultrasonicCm = Number(ultrasonicDistance);
   const ultrasonicLow = deviceConnected && Number.isFinite(ultrasonicCm) && ultrasonicCm >= ULTRASONIC_LOW_CM;
-
-  // Ultrasonic is usable only when the device is online AND reporting a distance.
-  const ultrasonicConnected = deviceConnected && ultrasonicDistance !== 'NA';
 
   useEffect(() => {
     if (prevDeviceConnected.current === true && deviceConnected === false) {
@@ -663,20 +662,11 @@ export default function Feeding() {
   }, [ultrasonicLow, ultrasonicCm, state.alertsEnabled, state.alerts_enabled, state.lowFeedAlert, state.low_feed_alert]);
 
   return (
-    <div className="p-8 modern-bg min-h-full">
-      {/* Hero Header */}
-      <div className="mb-8 relative">
-        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 rounded-2xl"></div>
-        <div className="relative z-10 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold text-gradient mb-2">{t('feedingManagement')}</h1>
-              <p className="text-slate-600 text-lg">{t('feedingSubtitle')}</p>
-            </div>
-            <div className="hidden md:block" style={{ backgroundImage: "url('/shrimp_pond_pic/raw-shrimps-on-hand-washing-shrimp-on-bowl-shrimps-background-fresh-shrimp-prawns-for-cooking-seafood-food-in-the-kitchen-free-photo.jpg')" }}>
-            </div>
-          </div>
-        </div>
+    <div className="p-8">
+      <div className="mb-8">
+        <div className="pond-kicker">IoT feeder control</div>
+        <h1 className="aq-title mb-2">{t('feedingManagement')}</h1>
+        <p className="aq-sub">{t('feedingSubtitle')}</p>
       </div>
 
       {/* Status Overview */}
@@ -715,11 +705,11 @@ export default function Feeding() {
       </div>
 
       {todayPlan?.date === todayISO() && (
-        <div className="mb-6 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-5 shadow-sm">
+        <div className="card mb-6">
           <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
             <div>
-              <h3 className="text-lg font-bold text-emerald-800">Today&apos;s feed plan (ML)</h3>
-              <p className="text-sm text-emerald-700">
+              <h3 className="text-lg font-bold">Today&apos;s feed plan (ML)</h3>
+              <p className="text-sm text-cyan-200/70">
                 {todayPlan.total_kg} kg total · DOC {todayPlan.doc} · Schedule type: Daily
               </p>
             </div>
@@ -731,12 +721,12 @@ export default function Feeding() {
                 key={time}
                 type="button"
                 onClick={() => openSlotEditor(time)}
-                className="rounded-lg bg-white border border-emerald-100 p-3 text-center hover:border-emerald-400 hover:shadow-md transition-all"
+                className="rounded-lg border border-cyan-400/15 bg-slate-950/40 p-3 text-center hover:border-cyan-300/40 transition-all"
                 title="Click to view/edit this feeding time"
               >
-                <div className="text-xs text-slate-500">{time}</div>
-                <div className="text-lg font-bold text-emerald-700">{kg} kg</div>
-                <div className="text-[10px] text-emerald-600 mt-1">Edit</div>
+                <div className="text-xs text-cyan-200/70">{time}</div>
+                <div className="text-lg font-bold">{kg} kg</div>
+                <div className="text-[10px] text-cyan-200/60 mt-1">Edit</div>
               </button>
             ))}
           </div>
@@ -774,7 +764,7 @@ export default function Feeding() {
 
       {/* Tab Navigation */}
       <div className="mb-6">
-        <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg">
+        <div className="feed-tabs">
           {[
             { id: 'controls', label: t('controls'), icon: '🎛️' },
             { id: 'schedule', label: t('schedule'), icon: '📅' },
@@ -783,11 +773,9 @@ export default function Feeding() {
           ].map(tab => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === tab.id
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-                }`}
+              className={`feed-tab ${activeTab === tab.id ? 'is-active' : ''}`}
             >
               <span className="mr-2">{tab.icon}</span>
               {tab.label}
@@ -877,77 +865,11 @@ export default function Feeding() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-slate-700">Ultrasonic Distance:</span>
                     <span className="text-lg font-bold text-slate-800">
-                      {!deviceConnected
-                        ? '📡 Disconnected'
-                        : ultrasonicDistance === 'NA'
-                          ? '📏 N/A'
-                          : `📏 ${ultrasonicDistance} cm`}
+                      {!deviceConnected || ultrasonicDistance === 'NA'
+                        ? 'Sensor disconnected'
+                        : `📏 ${ultrasonicDistance} cm${capPct != null ? ` (${capPct}%)` : ''}`}
                     </span>
                   </div>
-                </div>
-
-                {/* Servo Schedule (ON/OFF Time) */}
-                <div className="p-3 rounded-lg bg-white/60 backdrop-blur-sm border border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700">Servo Schedule:</span>
-                    <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={servoScheduleEnabled}
-                        onChange={(e) => setServoScheduleEnabled(e.target.checked)}
-                      />
-                      Enable
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <div className="text-xs text-slate-600 font-medium">ON time</div>
-                      <input
-                        type="time"
-                        value={servoScheduleOpenTime}
-                        onChange={(e) => setServoScheduleOpenTime(e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-slate-600 font-medium">OFF time</div>
-                      <input
-                        type="time"
-                        value={servoScheduleCloseTime}
-                        onChange={(e) => setServoScheduleCloseTime(e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      if (servoScheduleSaving) return;
-                      try {
-                        setServoScheduleSaving(true);
-                        const result = await wemosApi.setServoSchedule({
-                          openTime: servoScheduleOpenTime,
-                          closeTime: servoScheduleCloseTime,
-                          enabled: servoScheduleEnabled
-                        });
-                        if (result) {
-                          const open = result.open_time || result.openTime;
-                          const close = result.close_time || result.closeTime;
-                          if (open) setServoScheduleOpenTime(open);
-                          if (close) setServoScheduleCloseTime(close);
-                          setServoScheduleEnabled(Boolean(result.enabled));
-                        }
-                      } catch (e) {
-                        console.error('Failed to save servo schedule:', e);
-                      } finally {
-                        setServoScheduleSaving(false);
-                      }
-                    }}
-                    className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 text-white font-semibold py-2.5 px-4 shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={servoScheduleSaving}
-                  >
-                    {servoScheduleSaving ? 'Saving...' : 'Save Schedule'}
-                  </button>
                 </div>
 
                 {/* Servo Control Buttons */}
@@ -976,7 +898,7 @@ export default function Feeding() {
                     ) : (
                       <>
                         <span className="mr-2 text-lg">❌</span>
-                        <span>Servo OFF (R45)</span>
+                        <span>Servo OFF</span>
                       </>
                     )}
                   </button>
@@ -1004,7 +926,7 @@ export default function Feeding() {
                     ) : (
                       <>
                         <span className="mr-2 text-lg">✅</span>
-                        <span>Servo ON (L45)</span>
+                        <span>Servo ON</span>
                       </>
                     )}
                   </button>

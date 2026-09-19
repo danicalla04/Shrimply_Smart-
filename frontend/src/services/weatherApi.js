@@ -8,13 +8,44 @@
 // Client-side caching retained (10 min) to reduce server hits if user switches cities rapidly.
 
 import API_BASE from './apiConfig'
+import { wmoLabel } from './weather/weatherCodes'
 
 const CACHE = new Map()
 const TTL_MS = 10 * 60 * 1000 // 10 minutes
 
+const CALAPAN = { lat: 13.4117, lon: 121.1803 }
+
 const buildUrl = (endpoint, city) => {
   const params = new URLSearchParams({ city })
   return `${API_BASE}${endpoint}?${params.toString()}`
+}
+
+async function fetchOpenMeteoCurrent(city) {
+  const params = new URLSearchParams({
+    latitude: String(CALAPAN.lat),
+    longitude: String(CALAPAN.lon),
+    current: 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,pressure_msl',
+    wind_speed_unit: 'kmh',
+    timezone: 'Asia/Manila',
+  })
+  const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`)
+  if (!res.ok) {
+    throw new Error(`Open-Meteo error (${res.status})`)
+  }
+  const json = await res.json()
+  const current = json?.current || {}
+  const temp = current.temperature_2m
+  const wind = current.wind_speed_10m
+  return {
+    city,
+    country: 'Philippines',
+    temperature: temp == null ? null : Math.round(temp * 10) / 10,
+    description: wmoLabel(current.weather_code),
+    humidity: current.relative_humidity_2m ?? null,
+    windKmh: wind == null ? null : Math.round(wind * 10) / 10,
+    pressure: current.pressure_msl ?? null,
+    source: 'open-meteo',
+  }
 }
 
 async function fetchData(url, cacheKey, retries = 2) {
@@ -84,8 +115,25 @@ async function fetchData(url, cacheKey, retries = 2) {
 }
 
 export async function fetchCurrentWeather(city) {
-  const url = buildUrl('/weather/current/', city)
-  return await fetchData(url, `current-${city.toLowerCase().trim()}`)
+  const cacheKey = `current-${String(city || 'calapan').toLowerCase().trim()}`
+  const cached = CACHE.get(cacheKey)
+  if (cached && Date.now() - cached.time < TTL_MS) {
+    return cached.data
+  }
+
+  try {
+    const url = buildUrl('/weather/current/', city)
+    const data = await fetchData(url, cacheKey, 0)
+    if (data?.temperature != null || data?.description) {
+      return data
+    }
+  } catch (e) {
+    console.warn('Django current weather unavailable, using Open-Meteo:', e.message)
+  }
+
+  const fallback = await fetchOpenMeteoCurrent(city)
+  CACHE.set(cacheKey, { time: Date.now(), data: fallback })
+  return fallback
 }
 
 export async function fetchTomorrowWeather(city) {

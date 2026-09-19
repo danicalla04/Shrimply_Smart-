@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
-import LanguageToggle from '../components/LanguageToggle'
 
 const slideImages = [
     '/landing/aquaculture-pond.jpeg',
@@ -74,7 +73,6 @@ const Landing = () => {
                     <span className="text-white text-xl font-bold tracking-wide">ShrimplySmart</span>
                 </div>
                 <div className="flex items-center space-x-3">
-                    <LanguageToggle compact />
                     <button
                         onClick={() => navigate('/login')}
                         className="px-6 py-2.5 bg-white/15 backdrop-blur-md text-white border border-white/30 rounded-full font-medium hover:bg-white/25 transition-all duration-300"

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useWeather } from './WeatherContext';
 import { getDefaultWeatherSettings, mergeWeatherSettings } from '../../services/weather/settings';
+import { applyTheme, getStoredTheme } from '../../services/theme';
 
 function formatPlace(loc) {
   if (!loc) return '—';
@@ -23,7 +24,7 @@ export default function WeatherSettings() {
   };
 
   const tempUnit = units.temperatureUnit;
-  const theme = settings?.theme || 'light';
+  const theme = getStoredTheme();
 
   const preferred = useMemo(() => formatPlace(location), [location]);
 
@@ -88,7 +89,10 @@ export default function WeatherSettings() {
                 className={`px-4 py-2 rounded-xl border text-sm font-semibold ${
                   theme === 'light' ? 'bg-white border-slate-200 shadow-sm' : 'bg-transparent border-slate-200'
                 }`}
-                onClick={() => setSettings({ ...settings, theme: 'light' })}
+                onClick={() => {
+                  applyTheme('light');
+                  setSettings({ ...settings, theme: 'light' });
+                }}
               >
                 Light
               </button>
@@ -96,7 +100,10 @@ export default function WeatherSettings() {
                 className={`px-4 py-2 rounded-xl border text-sm font-semibold ${
                   theme === 'dark' ? 'bg-white border-slate-200 shadow-sm' : 'bg-transparent border-slate-200'
                 }`}
-                onClick={() => setSettings({ ...settings, theme: 'dark' })}
+                onClick={() => {
+                  applyTheme('dark');
+                  setSettings({ ...settings, theme: 'dark' });
+                }}
               >
                 Dark
               </button>

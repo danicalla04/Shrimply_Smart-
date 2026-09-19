@@ -85,8 +85,8 @@ export default function WeatherHome() {
   return (
     <div className="space-y-6">
       {/* MUNICIPALITY SELECTOR SECTION */}
-      <div className="bg-gradient-to-r from-blue-50 to-cyan-50 p-6 rounded-2xl border border-blue-200 shadow-sm">
-        <h3 className="text-lg font-bold text-gray-900 mb-3">📍 Oriental Mindoro Municipality</h3>
+      <div className="card p-6">
+        <h3 className="text-lg font-bold mb-3">📍 Oriental Mindoro Municipality</h3>
         <MunicipalitySelector
           value={selectedMunicipality}
           onChange={onMunicipalityChange}
@@ -96,11 +96,11 @@ export default function WeatherHome() {
 
       {/* PRIMARY FOCUS BADGE */}
       {selectedMunicipality?.is_primary && (
-        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-300 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+        <div className="card p-4 flex items-center gap-3">
           <span className="text-3xl">⭐</span>
           <div>
-            <div className="font-bold text-amber-900">High-Accuracy Weather Forecast</div>
-            <div className="text-sm text-amber-700">
+            <div className="font-bold">High-Accuracy Weather Forecast</div>
+            <div className="text-sm text-cyan-200/70">
               Calapan City is optimized for 95%+ forecast accuracy with specialized ML models
             </div>
           </div>

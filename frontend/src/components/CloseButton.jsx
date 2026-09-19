@@ -1,4 +1,4 @@
-const CloseButton = ({ onClick, size = 'md', variant = 'default', className = '' }) => {
+const CloseButton = ({ onClick, size = 'md', variant = 'default', className = '', title = 'Close' }) => {
   const sizeClasses = {
     sm: 'w-4 h-4',
     md: 'w-5 h-5',
@@ -17,7 +17,7 @@ const CloseButton = ({ onClick, size = 'md', variant = 'default', className = ''
     <button
       onClick={onClick}
       className={`dismiss-btn ${variantClasses[variant]} ${className}`}
-      title="Close"
+      title={title}
     >
       <svg className={sizeClasses[size]} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

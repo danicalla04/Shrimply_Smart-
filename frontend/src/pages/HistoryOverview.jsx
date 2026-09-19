@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import * as seasonApi from '../services/seasonBackend'
 import { fetchHistorySettings } from '../services/historySettings'
 import { sendHarvestReminder, isReminderSent, markReminderSent } from '../services/notifications'
+import SeasonSensorAverages from '../components/SeasonSensorAverages'
+import PageLoader from '../components/PageLoader'
 import './history-overview.css'
 
 // Helper to format numbers with unit
@@ -53,6 +55,9 @@ const HistoryOverview = () => {
     const [actionLoading, setActionLoading] = useState(false)
 
     const [sensorAvgs, setSensorAvgs] = useState(null)
+    const [expandedSeasonId, setExpandedSeasonId] = useState(null)
+    const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null)
+    const overviewRef = useRef(null)
 
 
     const flash = (msg, type = 'success') => {
@@ -166,30 +171,6 @@ const HistoryOverview = () => {
         }
     }
 
-    const addDayNote = async () => {
-        if (!dateISO) return flash('Please select a date', 'error')
-        if (!activeSeason) return flash('No active season', 'error')
-
-        const noteText = (note || '').trim()
-        if (!noteText) {
-            return flash('Please enter a note for the day note', 'error')
-        }
-
-        setActionLoading(true)
-        try {
-            await seasonApi.addEntryToActive(activeSeason.id, dateISO, 0, 'kg', noteText, false)
-            flash('Day note added')
-            setNote('')
-            await loadAll()
-        } catch (e) {
-            flash(e.message, 'error')
-        } finally {
-            setActionLoading(false)
-        }
-    }
-
-
-
     // ── Export Season Report as CSV ────────────────────────────────
     const exportSeasonCSV = async (season) => {
         try {
@@ -221,11 +202,11 @@ const HistoryOverview = () => {
                     `${e.date},${e.amount},${(e.note || '').replace(/,/g, ';')},${e.is_all ? 'Yes' : 'No'}`
                 )
             ]
-            const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+            const blob = new Blob([lines.join('\n')], { type: 'application/vnd.ms-excel' })
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
-            a.download = `${season.name.replace(/[^a-zA-Z0-9]/g, '_')}_report.csv`
+            a.download = `${season.name.replace(/[^a-zA-Z0-9]/g, '_')}_report.xls`
             a.click()
             URL.revokeObjectURL(url)
             flash('Report exported!')
@@ -234,12 +215,19 @@ const HistoryOverview = () => {
         }
     }
 
-    const handleDeleteEntry = async (entryId) => {
+    const handleDeleteEntry = async () => {
+        const entryId = pendingDeleteEntry?.id
+        if (!entryId) return
         setActionLoading(true)
         try {
             await seasonApi.deleteEntry(entryId)
             flash('Entry deleted')
+            setPendingDeleteEntry(null)
             await loadAll()
+            if (selectedSeasonId) {
+                const ents = await seasonApi.getSeasonEntries(selectedSeasonId).catch(() => [])
+                setSelectedEntries(Array.isArray(ents) ? ents : [])
+            }
         } catch (e) {
             flash(e.message, 'error')
         } finally {
@@ -269,25 +257,6 @@ const HistoryOverview = () => {
         }
     }
 
-    const handleDeleteSeason = async (id) => {
-        const ok = confirm('Delete this season and all its entries? This cannot be undone.')
-        if (!ok) return
-        setActionLoading(true)
-        try {
-            await seasonApi.deleteSeason(id)
-            if (selectedSeasonId === id) {
-                setSelectedSeasonId(null)
-                setSelectedEntries([])
-            }
-            flash('Season deleted')
-            await loadAll()
-        } catch (e) {
-            flash(e.message, 'error')
-        } finally {
-            setActionLoading(false)
-        }
-    }
-
     const handleViewOverview = async (seasonId) => {
         setSelectedSeasonId(seasonId)
         try {
@@ -302,13 +271,14 @@ const HistoryOverview = () => {
         return seasons.find(s => s.id === selectedSeasonId) || null
     }, [selectedSeasonId, seasons])
 
+    useEffect(() => {
+        if (!selectedSeasonId) return
+        overviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, [selectedSeasonId])
+
     // ── render ─────────────────────────────────────────────────────
     if (loading) {
-        return (
-            <div className="history-overview p-6 space-y-6 animate-pulse">
-                {[1, 2, 3].map(i => <div key={i} className="h-40 bg-white/10 rounded-2xl" />)}
-            </div>
-        )
+        return <PageLoader />
     }
 
     return (
@@ -385,32 +355,8 @@ const HistoryOverview = () => {
             )}
 
             {/* ── Sensor Averages Per Season ─────────────────────────────── */}
-            {activeSeason && sensorAvgs && (
-                <div className="glass-card rounded-2xl p-6 mb-6">
-                    <h2 className="text-xl font-bold mb-4">📊 Sensor Averages (This Season)</h2>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                        <div className="glass-card rounded-2xl p-4 text-center">
-                            <div className="text-slate-400 text-sm">🌡️ Avg Temp</div>
-                            <div className="text-2xl font-bold mt-1">{sensorAvgs.temperature != null ? Number(sensorAvgs.temperature).toFixed(1) : '—'}<span className="text-sm ml-1">°C</span></div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4 text-center">
-                            <div className="text-slate-400 text-sm">🧪 Avg pH</div>
-                            <div className="text-2xl font-bold mt-1">{sensorAvgs.ph != null ? Number(sensorAvgs.ph).toFixed(2) : '—'}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4 text-center">
-                            <div className="text-slate-400 text-sm">💨 Avg DO</div>
-                            <div className="text-2xl font-bold mt-1">{sensorAvgs.turbidity != null ? Number(sensorAvgs.turbidity).toFixed(1) : '—'}<span className="text-sm ml-1">NTU</span></div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4 text-center">
-                            <div className="text-slate-400 text-sm">💧 Avg TDS</div>
-                            <div className="text-2xl font-bold mt-1">{sensorAvgs.tds != null ? Number(sensorAvgs.tds).toFixed(0) : '—'}<span className="text-sm ml-1">ppm</span></div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4 text-center">
-                            <div className="text-slate-400 text-sm">📖 Readings</div>
-                            <div className="text-2xl font-bold mt-1">{sensorAvgs.reading_count ?? 0}</div>
-                        </div>
-                    </div>
-                </div>
+            {activeSeason && (
+                <SeasonSensorAverages averages={sensorAvgs} className="glass-card rounded-2xl p-6 mb-6" />
             )}
 
 
@@ -455,13 +401,21 @@ const HistoryOverview = () => {
                         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                             <div>
                                 <label className="text-sm text-slate-400">Date</label>
-                                <input type="date" value={dateISO} onChange={e => setDateISO(e.target.value)}
-                                    className="w-full mt-1 rounded-lg bg-white/10 border border-white/20 px-3 py-2" />
+                                <div className="harvest-picker mt-1">
+                                    <input type="date" value={dateISO} onChange={e => setDateISO(e.target.value)}
+                                        className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2" />
+                                    <button type="button" className="harvest-picker-btn" title="Select date"
+                                        onClick={(e) => e.currentTarget.previousElementSibling?.showPicker?.()}>📅</button>
+                                </div>
                             </div>
                             <div>
                                 <label className="text-sm text-slate-400">Time</label>
-                                <input type="time" value={timeHM} onChange={e => setTimeHM(e.target.value)}
-                                    className="w-full mt-1 rounded-lg bg-white/10 border border-white/20 px-3 py-2" />
+                                <div className="harvest-picker mt-1">
+                                    <input type="time" value={timeHM} onChange={e => setTimeHM(e.target.value)}
+                                        className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2" />
+                                    <button type="button" className="harvest-picker-btn" title="Select time"
+                                        onClick={(e) => e.currentTarget.previousElementSibling?.showPicker?.()}>🕒</button>
+                                </div>
                             </div>
                             <div>
                                 <label className="text-sm text-slate-400">Amount</label>
@@ -484,21 +438,13 @@ const HistoryOverview = () => {
                                 value={note} onChange={e => setNote(e.target.value)}
                                 className="w-full mt-1 rounded-lg bg-white/10 border border-white/20 px-3 py-2" />
                         </div>
-                        <div className="flex gap-3 mt-4">
-                            <button onClick={() => addHarvest(false)} disabled={actionLoading}
-                                className="px-4 py-2 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 transition">Add Harvest</button>
-                            <button onClick={() => addHarvest(true)} disabled={actionLoading}
-                                className="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition">Harvest All (end season)</button>
-                            <button onClick={addDayNote} disabled={actionLoading}
-                                className="px-4 py-2 rounded-xl bg-violet-600 text-white hover:bg-violet-500 transition">Add Day Note</button>
-                            {expected && (
-                                <button
-                                    onClick={() => setDateISO(expected.date.toISOString().slice(0, 10))}
-                                    className="px-4 py-2 rounded-xl bg-amber-600 text-white hover:bg-amber-500 transition"
-                                >Use Expected Date</button>
-                            )}
+                        <div className="flex flex-wrap gap-3 mt-4">
+                            <button type="button" onClick={() => addHarvest(false)} disabled={actionLoading}
+                                className="harvest-action-btn">Add Harvest</button>
+                            <button type="button" onClick={() => addHarvest(true)} disabled={actionLoading}
+                                className="harvest-action-btn is-all">Harvest All (end season)</button>
                         </div>
-                        <p className="text-xs text-slate-400 mt-2">Tip: Harvest needs an amount (&gt; 0). Note is optional for harvest. Day note requires note text.</p>
+                        <p className="text-xs text-slate-400 mt-2">Tip: Harvest needs an amount (&gt; 0). Note is optional.</p>
                     </>
                 )}
             </div>
@@ -554,68 +500,188 @@ const HistoryOverview = () => {
                 </div>
             )}
 
-            {/* ── Seasons History Table ─────────────────────────────────── */}
+            {/* ── Seasons History Cards ─────────────────────────────────── */}
             <div className="glass-card rounded-2xl p-6">
                 <h2 className="text-xl font-bold mb-4">Seasons History</h2>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                        <thead>
-                            <tr className="text-left text-slate-400">
-                                <th className="py-2 pr-4">Season</th>
-                                <th className="py-2 pr-4">Start</th>
-                                <th className="py-2 pr-4">End</th>
-                                <th className="py-2 pr-4">Initial Stock</th>
-                                <th className="py-2 pr-4">Current / Final Qty</th>
-                                <th className="py-2 pr-4">ABW</th>
-                                <th className="py-2 pr-4">Survival</th>
-                                <th className="py-2 pr-4">Total</th>
-                                <th className="py-2 pr-4">Harvests</th>
-                                <th className="py-2 pr-4">Details</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {seasons.length === 0 && (
-                                <tr>
-                                    <td className="py-4 text-slate-400" colSpan={10}>No history yet.</td>
-                                </tr>
-                            )}
-                            {seasons.map(season => {
-                                const survival = seasonSurvivalPct(season)
-                                return (
-                                <tr key={season.id} className="border-t border-white/10 align-top">
-                                    <td className="py-2 pr-4 font-medium">{season.name}</td>
-                                    <td className="py-2 pr-4">{new Date(season.start_date).toLocaleDateString()}</td>
-                                    <td className="py-2 pr-4">
-                                        {season.end_date
-                                            ? new Date(season.end_date).toLocaleDateString()
-                                            : <span className="px-2 py-1 rounded bg-emerald-600/30 text-emerald-700">Active</span>
-                                        }
-                                    </td>
-                                    <td className="py-2 pr-4">{formatPcs(seasonInitialStock(season))}</td>
-                                    <td className="py-2 pr-4 font-semibold">{formatPcs(season.current_shrimp_quantity)}</td>
-                                    <td className="py-2 pr-4">{formatAbw(season.average_shrimp_weight_grams)}</td>
-                                    <td className="py-2 pr-4">{survival != null ? `${survival}%` : '—'}</td>
-                                    <td className="py-2 pr-4">{formatAmount(season.total_harvest_kg)}</td>
-                                    <td className="py-2 pr-4">{season.harvest_count}</td>
-                                    <td className="py-2 pr-4">
-                                        <div>
-                                            <div className="flex gap-2 mt-1 flex-wrap">
-                                                <button onClick={() => handleViewOverview(season.id)}
-                                                    className="px-3 py-1 rounded bg-cyan-600 text-white hover:bg-cyan-500 text-xs">View Overview</button>
-                                                <button onClick={() => exportSeasonCSV(season)}
-                                                    className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-500 text-xs">Export CSV</button>
-                                                <button onClick={() => handleDeleteSeason(season.id)}
-                                                    className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-500 text-xs">Delete Season</button>
+                {seasons.length === 0 ? (
+                    <p className="text-slate-400">No history yet.</p>
+                ) : (
+                    <div className="season-card-grid">
+                        {seasons.map(season => {
+                            const survival = seasonSurvivalPct(season)
+                            const isOpen = expandedSeasonId === season.id
+                            const startLabel = new Date(season.start_date).toLocaleDateString()
+                            const endLabel = season.end_date
+                                ? new Date(season.end_date).toLocaleDateString()
+                                : null
+                            return (
+                                <article key={season.id} className={`season-card${isOpen ? ' is-open' : ''}`}>
+                                    <button
+                                        type="button"
+                                        className="season-card-head"
+                                        aria-expanded={isOpen}
+                                        onClick={() => setExpandedSeasonId(isOpen ? null : season.id)}
+                                    >
+                                        <div className="season-card-titleblock">
+                                            <div className="season-card-name">{season.name}</div>
+                                            <div className="season-card-dates">
+                                                {startLabel}
+                                                {endLabel ? ` → ${endLabel}` : ''}
                                             </div>
                                         </div>
-                                    </td>
-                                </tr>
-                                )
-                            })}
-                        </tbody>
-                    </table>
-                </div>
+                                        <div className="season-card-meta">
+                                            {endLabel
+                                                ? <span className="season-chip">{formatAmount(season.total_harvest_kg)}</span>
+                                                : <span className="px-2 py-1 rounded bg-emerald-600/30 text-emerald-700">Active</span>
+                                            }
+                                            <span className={`season-caret${isOpen ? ' is-open' : ''}`} aria-hidden>▾</span>
+                                        </div>
+                                    </button>
+                                    {isOpen && (
+                                        <div className="season-card-body">
+                                            <div className="season-stat-grid">
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">Start</div>
+                                                    <div className="season-stat-value">{startLabel}</div>
+                                                </div>
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">End</div>
+                                                    <div className="season-stat-value">
+                                                        {endLabel || <span className="px-2 py-1 rounded bg-emerald-600/30 text-emerald-700">Active</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">Initial Stock</div>
+                                                    <div className="season-stat-value">{formatPcs(seasonInitialStock(season))}</div>
+                                                </div>
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">Current / Final Qty</div>
+                                                    <div className="season-stat-value">{formatPcs(season.current_shrimp_quantity)}</div>
+                                                </div>
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">ABW</div>
+                                                    <div className="season-stat-value">{formatAbw(season.average_shrimp_weight_grams)}</div>
+                                                </div>
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">Survival</div>
+                                                    <div className="season-stat-value">{survival != null ? `${survival}%` : '—'}</div>
+                                                </div>
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">Total</div>
+                                                    <div className="season-stat-value">{formatAmount(season.total_harvest_kg)}</div>
+                                                </div>
+                                                <div className="season-stat">
+                                                    <div className="season-stat-label">Harvests</div>
+                                                    <div className="season-stat-value">{season.harvest_count || 0}</div>
+                                                </div>
+                                            </div>
+                                            <div className="season-card-actions">
+                                                <button type="button" onClick={() => handleViewOverview(season.id)}
+                                                    className="season-action-btn">View Overview</button>
+                                                <button type="button" onClick={() => exportSeasonCSV(season)}
+                                                    className="season-action-btn is-export">Export Excel</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </article>
+                            )
+                        })}
+                    </div>
+                )}
             </div>
+
+            {selectedSeason && (
+                <div ref={overviewRef} className="glass-card rounded-2xl p-6 mt-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xl font-bold">Season Overview</h2>
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => exportSeasonCSV(selectedSeason)}
+                                className="season-action-btn is-export">Export Excel</button>
+                            <button type="button" onClick={() => { setSelectedSeasonId(null); setSelectedEntries([]) }}
+                                className="season-action-btn is-close">Close</button>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Season</div>
+                            <div className="text-lg font-semibold">{selectedSeason.name}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Start</div>
+                            <div className="text-lg font-semibold">{new Date(selectedSeason.start_date).toLocaleDateString()}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">End</div>
+                            <div className="text-lg font-semibold">{selectedSeason.end_date ? new Date(selectedSeason.end_date).toLocaleDateString() : '— (Active)'}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Total</div>
+                            <div className="text-lg font-semibold">{formatAmount(selectedSeason.total_harvest_kg)}</div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Initial Stock</div>
+                            <div className="text-lg font-semibold">{formatPcs(seasonInitialStock(selectedSeason))}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Current / Final Qty</div>
+                            <div className="text-lg font-semibold">{formatPcs(selectedSeason.current_shrimp_quantity)}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">ABW</div>
+                            <div className="text-lg font-semibold">{formatAbw(selectedSeason.average_shrimp_weight_grams)}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Survival</div>
+                            <div className="text-lg font-semibold">
+                                {seasonSurvivalPct(selectedSeason) != null ? `${seasonSurvivalPct(selectedSeason)}%` : '—'}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Harvests</div>
+                            <div className="text-lg font-semibold">{selectedSeason.harvest_count}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Avg per Harvest</div>
+                            <div className="text-lg font-semibold">{formatAmount(selectedSeason.harvest_count > 0 ? selectedSeason.total_harvest_kg / selectedSeason.harvest_count : 0)}</div>
+                        </div>
+                        <div className="glass-card rounded-2xl p-4">
+                            <div className="text-slate-400">Days Active</div>
+                            <div className="text-lg font-semibold">{selectedSeason.days_active}</div>
+                        </div>
+                    </div>
+
+                    <h3 className="text-lg font-semibold mb-2">Entries</h3>
+                    <div className="space-y-2">
+                        {selectedEntries.length === 0 && <div className="text-slate-400">No entries</div>}
+                        {selectedEntries.map(e => {
+                            let dayBadge = null
+                            try {
+                                const start = new Date(selectedSeason.start_date)
+                                const d = new Date(e.date)
+                                const daysSince = Math.floor((d - start) / (1000 * 60 * 60 * 24))
+                                dayBadge = `Day ${Math.max(1, daysSince + 1)}`
+                            } catch { dayBadge = null }
+                            return (
+                                <div key={e.id} className="flex items-center gap-2">
+                                    <span className="text-slate-600">{new Date(e.date).toLocaleDateString()}</span>
+                                    {dayBadge && <span className="text-xs px-2 py-1 rounded bg-slate-700 text-white">{dayBadge}</span>}
+                                    <span>{formatAmount(e.amount)}</span>
+                                    <span>{e.is_all ? <span className="px-2 py-1 rounded bg-blue-600/30 text-blue-700">All</span> : 'Partial'}</span>
+                                    <span className="text-slate-400">{e.note || '—'}</span>
+                                    <button type="button" onClick={() => setPendingDeleteEntry(e)}
+                                        className="season-action-btn is-danger ml-auto">Delete</button>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* ── Multi-Season Comparison Table ─────────────────────────── */}
             {seasons.length >= 2 && (
@@ -717,8 +783,8 @@ const HistoryOverview = () => {
                                     {seasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center">
                                             {!s.end_date
-                                                ? <span className="px-2 py-1 rounded bg-emerald-600/30 text-emerald-700 text-xs">Active</span>
-                                                : <span className="px-2 py-1 rounded bg-slate-200 text-slate-600 text-xs">Completed</span>
+                                                ? <span className="season-status-active">Active</span>
+                                                : <span className="season-status-completed">✓ Completed</span>
                                             }
                                         </td>
                                     ))}
@@ -729,102 +795,29 @@ const HistoryOverview = () => {
                 </div>
             )}
 
-            {/* ── Selected Season Overview Panel ────────────────────────── */}
-            {selectedSeason && (
-                <div className="glass-card rounded-2xl p-6 mt-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-xl font-bold">Season Overview</h2>
-                        <div className="flex gap-2">
-                            <button onClick={() => exportSeasonCSV(selectedSeason)}
-                                className="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-500 text-sm">Export CSV</button>
-                            <button onClick={() => handleDeleteSeason(selectedSeason.id)}
-                                className="px-3 py-1 rounded bg-red-600 text-white hover:bg-red-500 text-sm">Delete Season</button>
-                            <button onClick={() => { setSelectedSeasonId(null); setSelectedEntries([]) }}
-                                className="px-3 py-1 rounded bg-slate-700 text-white hover:bg-slate-600 text-sm">Close</button>
+            {pendingDeleteEntry ? (
+                <div className="aq-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-entry-title">
+                    <div className="card aq-modal">
+                        <h3 id="delete-entry-title" className="text-lg font-semibold mb-2">Delete harvest entry</h3>
+                        <p className="text-sm text-cyan-100/80 mb-4">
+                            Delete this harvest entry? This cannot be undone.
+                        </p>
+                        <p className="text-xs text-cyan-200/60 mb-5">
+                            {pendingDeleteEntry.date ? new Date(pendingDeleteEntry.date).toLocaleDateString() : ''}
+                            {pendingDeleteEntry.amount != null ? ` · ${formatAmount(pendingDeleteEntry.amount)}` : ''}
+                            {pendingDeleteEntry.note ? ` · ${pendingDeleteEntry.note}` : ''}
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <button type="button" className="season-action-btn is-close" onClick={() => setPendingDeleteEntry(null)} disabled={actionLoading}>
+                                Cancel
+                            </button>
+                            <button type="button" className="season-action-btn is-danger" onClick={handleDeleteEntry} disabled={actionLoading}>
+                                {actionLoading ? 'Deleting...' : 'Delete'}
+                            </button>
                         </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Season</div>
-                            <div className="text-lg font-semibold">{selectedSeason.name}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Start</div>
-                            <div className="text-lg font-semibold">{new Date(selectedSeason.start_date).toLocaleDateString()}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">End</div>
-                            <div className="text-lg font-semibold">{selectedSeason.end_date ? new Date(selectedSeason.end_date).toLocaleDateString() : '— (Active)'}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Total</div>
-                            <div className="text-lg font-semibold">{formatAmount(selectedSeason.total_harvest_kg)}</div>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Initial Stock</div>
-                            <div className="text-lg font-semibold">{formatPcs(seasonInitialStock(selectedSeason))}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Current / Final Qty</div>
-                            <div className="text-lg font-semibold">{formatPcs(selectedSeason.current_shrimp_quantity)}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">ABW</div>
-                            <div className="text-lg font-semibold">{formatAbw(selectedSeason.average_shrimp_weight_grams)}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Survival</div>
-                            <div className="text-lg font-semibold">
-                                {seasonSurvivalPct(selectedSeason) != null ? `${seasonSurvivalPct(selectedSeason)}%` : '—'}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Harvests</div>
-                            <div className="text-lg font-semibold">{selectedSeason.harvest_count}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Avg per Harvest</div>
-                            <div className="text-lg font-semibold">{formatAmount(selectedSeason.harvest_count > 0 ? selectedSeason.total_harvest_kg / selectedSeason.harvest_count : 0)}</div>
-                        </div>
-                        <div className="glass-card rounded-2xl p-4">
-                            <div className="text-slate-400">Days Active</div>
-                            <div className="text-lg font-semibold">{selectedSeason.days_active}</div>
-                        </div>
-                    </div>
-
-                    <h3 className="text-lg font-semibold mb-2">Entries</h3>
-                    <div className="space-y-2">
-                        {selectedEntries.length === 0 && <div className="text-slate-400">No entries</div>}
-                        {selectedEntries.map(e => {
-                            // compute day number relative to season start
-                            let dayBadge = null
-                            try {
-                                const start = new Date(selectedSeason.start_date)
-                                const d = new Date(e.date)
-                                const daysSince = Math.floor((d - start) / (1000 * 60 * 60 * 24))
-                                dayBadge = `Day ${Math.max(1, daysSince + 1)}`
-                            } catch { dayBadge = null }
-                            return (
-                                <div key={e.id} className="flex items-center gap-2">
-                                    <span className="text-slate-600">{new Date(e.date).toLocaleDateString()}</span>
-                                    {dayBadge && <span className="text-xs px-2 py-1 rounded bg-slate-700 text-white">{dayBadge}</span>}
-                                    <span>{formatAmount(e.amount)}</span>
-                                    <span>{e.is_all ? <span className="px-2 py-1 rounded bg-blue-600/30 text-blue-700">All</span> : 'Partial'}</span>
-                                    <span className="text-slate-400">{e.note || '—'}</span>
-                                    <button onClick={() => handleDeleteEntry(e.id)}
-                                        className="ml-auto px-2 py-1 rounded bg-red-600 text-white hover:bg-red-500 text-xs">Delete</button>
-                                </div>
-                            )
-                        })}
                     </div>
                 </div>
-            )}
+            ) : null}
         </div>
     )
 }

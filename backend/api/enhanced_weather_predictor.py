@@ -13,14 +13,14 @@ try:
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
-    print("⚠️ pandas/numpy not available - data features will be disabled")
+    print("[WARN] pandas/numpy not available - data features will be disabled")
 
 try:
     from statsmodels.tsa.arima.model import ARIMA
     STATSMODELS_AVAILABLE = True
 except ImportError:
     STATSMODELS_AVAILABLE = False
-    print("⚠️ statsmodels not available - ARIMA forecasting will be disabled")
+    print("[WARN] statsmodels not available - ARIMA forecasting will be disabled")
 
 try:
     from sklearn.linear_model import LinearRegression
@@ -31,7 +31,7 @@ try:
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
-    print("⚠️ scikit-learn not available - ML models will be disabled")
+    print("[WARN] scikit-learn not available - ML models will be disabled")
 
 # Try to import ML libraries (they may not be installed)
 try:
@@ -50,14 +50,14 @@ try:
 
 except ImportError:
     TENSORFLOW_AVAILABLE = False
-    print("âš ï¸ TensorFlow not available - LSTM models will be disabled")
+    print("[WARN] TensorFlow not available - LSTM models will be disabled")
 
 try:
     import xgboost as xgb
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
-    print("âš ï¸ XGBoost not available - XGBoost models will be disabled")
+    print("[WARN] XGBoost not available - XGBoost models will be disabled")
 
 
 def _load_keras_model_trusted(filepath, extra_custom_objects=None):
@@ -164,7 +164,7 @@ class EnhancedWeatherPredictor:
                 self.data['date'] = pd.to_datetime(self.data['date'])
                 print(f"[OK] Loaded {len(self.data)} weather records from CSV")
             else:
-                print(f"âš ï¸ Weather CSV not found at {self.csv_path}")
+                print(f"[WARN] Weather CSV not found at {self.csv_path}")
                 self.data = None
         except Exception as e:
             print(f"[ERROR] Error loading weather CSV: {e}")
@@ -224,7 +224,7 @@ class EnhancedWeatherPredictor:
                     self.models[file.replace('.pkl', '')] = joblib.load(path)
                     print(f"[OK] Loaded {file}")
                 else:
-                    print(f"âš ï¸ Model file not found: {file}")
+                    print(f"[WARN] Model file not found: {file}")
             
             if 'last_data' in self.models:
                 self.last_data = self.models['last_data']
@@ -804,7 +804,7 @@ class EnhancedWeatherPredictor:
                 self.weather_history = self.weather_history[-30:]
         else:
             # Fallback to ML-only prediction
-            print("âš ï¸ OpenWeather API failed, using ML prediction only")
+            print("[WARN] OpenWeather API failed, using ML prediction only")
             return self.get_current_weather_ml_only(location, save_to_db)
         
         # Save to database if requested
@@ -1106,7 +1106,7 @@ class EnhancedWeatherPredictor:
                 adjusted_forecast.append(day_data)
                 
             except Exception as e:
-                print(f"âš ï¸ Error applying pattern adjustments: {e}")
+                print(f"[WARN] Error applying pattern adjustments: {e}")
                 adjusted_forecast.append(day_data)
         
         return adjusted_forecast
@@ -2183,7 +2183,7 @@ class EnhancedWeatherPredictor:
             from django.conf import settings
             
             if not settings.configured:
-                print("âš ï¸ Django settings not configured, skipping database save")
+                print("[WARN] Django settings not configured, skipping database save")
                 return None
             
             from api.models import WeatherForecast
@@ -2227,7 +2227,7 @@ class EnhancedWeatherPredictor:
             return weather_obj
             
         except Exception as e:
-            print(f"âš ï¸ Error saving weather to database: {e}")
+            print(f"[WARN] Error saving weather to database: {e}")
             return None
 
     def get_municipalities(self) -> List[Dict]:

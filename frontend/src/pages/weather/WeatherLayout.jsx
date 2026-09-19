@@ -15,12 +15,6 @@ function formatPlace(loc) {
   return parts.join(', ');
 }
 
-function applyTheme(theme) {
-  const isDark = theme === 'dark';
-  document.documentElement.classList.toggle('theme-dark', isDark);
-  document.documentElement.classList.toggle('dark', isDark);
-}
-
 export default function WeatherLayout() {
   const navigate = useNavigate();
   const routerLoc = useLocation();
@@ -48,10 +42,6 @@ export default function WeatherLayout() {
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const fetchAbortRef = useRef(null);
-
-  useEffect(() => {
-    applyTheme(settings.theme);
-  }, [settings.theme]);
 
   // Autoload geolocation on first entry if no preferred location
   useEffect(() => {
@@ -354,19 +344,16 @@ export default function WeatherLayout() {
   );
 
   const navLinkClass = ({ isActive }) =>
-    `px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-      isActive
-        ? 'bg-white shadow-md border border-slate-200 text-slate-900'
-        : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-    }`;
+    `weather-nav-link${isActive ? ' is-on' : ''}`;
 
   return (
     <WeatherProvider value={ctx}>
-      <div className="p-6 min-h-full bg-gradient-to-br from-slate-50 to-slate-100">
+      <div className="p-2 min-h-full">
         <div className="mb-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h1 className="text-4xl font-bold text-gradient mb-1">Weather</h1>
+              <div className="pond-kicker">Atmospheric intelligence</div>
+              <h1 className="aq-title mb-1">Weather</h1>
               <div className="text-slate-600">
                 <span className="font-medium">Location:</span> {displayLocation || '—'}
                 {lastUpdated && (

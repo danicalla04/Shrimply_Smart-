@@ -16,7 +16,7 @@ const AlertCard = ({ title, message, type, timestamp, isRead, onMarkAsRead, onDi
   }
 
   return (
-    <div className={`alert-card ${alertClasses[type]} ${isRead ? 'opacity-60' : ''}`}>
+    <div className={`card alert-card ${alertClasses[type] || ''} ${isRead ? 'is-read' : ''}`}>
       <div className="flex items-start justify-between">
         <div className="flex items-start space-x-3">
           <span className="text-2xl">{iconClasses[type]}</span>
@@ -39,6 +39,7 @@ const AlertCard = ({ title, message, type, timestamp, isRead, onMarkAsRead, onDi
             onClick={onDismiss}
             size="md"
             variant="default"
+  q           title="Delete"
           />
         </div>
       </div>

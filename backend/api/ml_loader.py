@@ -3,16 +3,40 @@
 This module currently manages the singleton weather predictor.
 """
 
+import builtins
 import logging
+import sys
 import threading
 
 logger = logging.getLogger(__name__)
+
+_orig_print = builtins.print
+
+
+def _safe_print(*args, **kwargs):
+    try:
+        _orig_print(*args, **kwargs)
+    except UnicodeEncodeError:
+        text = ' '.join(str(a) for a in args)
+        _orig_print(text.encode('ascii', 'replace').decode('ascii'), **kwargs)
+
+
+builtins.print = _safe_print
 
 _lock = threading.Lock()
 
 # ── Weather predictor ─────────────────────────────────────────────────
 _weather_predictor = None
 _weather_loaded = False
+
+
+def _safe_stdio():
+    """Windows cp1252 consoles crash on emoji/mojibake prints during import."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
 
 
 def load_weather_predictor():
@@ -22,6 +46,7 @@ def load_weather_predictor():
     if _weather_loaded:
         return
 
+    _safe_stdio()
     try:
         from .enhanced_weather_predictor import EnhancedWeatherPredictor
         with _lock:

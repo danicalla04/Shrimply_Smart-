@@ -216,7 +216,7 @@ const SystemSettings = () => {
           type="button"
           onClick={handleRefreshThresholds}
           disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm"
+          className="flex items-center gap-2 px-4 py-2 btn-secondary"
           title="Refresh thresholds from database"
         >
           <span className={refreshing ? 'animate-spin' : ''}>🔄</span>
@@ -278,7 +278,7 @@ const SystemSettings = () => {
                 className={`px-4 py-2 rounded border text-sm font-medium transition
                   ${harvestDays === d
                     ? 'bg-primary-500 text-white border-primary-500'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    : 'bg-slate-950/40 text-cyan-100 border-cyan-400/20 hover:border-cyan-300/40'}`}
               >{d}d</button>
             ))}
           </div>

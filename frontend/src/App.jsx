@@ -1,7 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import DashboardLayout from './components/DashboardLayout';
+import { hideBootIfIdle } from './components/PageLoader';
 import { LanguageProvider } from './context/LanguageContext';
 import Landing from './pages/Landing'
 import Login from './pages/Login'
@@ -14,7 +15,8 @@ import SystemSettings from './pages/SystemSettings'
 import Feeding from './pages/Feeding';
 import HistoryOverview from './pages/HistoryOverview';
 import GrowthDashboard from './pages/GrowthDashboard';
-import GrowthSettings from './pages/GrowthSettings';
+import GrowthSettings from './pages/GrowthSettings'
+import WaterQuality from './pages/WaterQuality';
 
 import WeatherLayout from './pages/weather/WeatherLayout';
 import WeatherHome from './pages/weather/WeatherHome';
@@ -25,33 +27,20 @@ import WeatherAnalytics from './pages/weather/WeatherAnalytics';
 
 
 const ProtectedRoute = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
-
-  useEffect(() => {
-    try {
-      const token = localStorage.getItem('access_token');
-      setIsAuthenticated(!!token);
-    } catch (e) {
-      console.error('[App] Error accessing localStorage', e);
-      setIsAuthenticated(false);
-    }
-  }, []);
-
-  if (isAuthenticated === null) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-cyan-50">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
+  let token = null
+  try {
+    token = localStorage.getItem('access_token')
+  } catch (e) {
+    console.error('[App] Error accessing localStorage', e)
   }
-
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
+  return token ? children : <Navigate to="/login" replace />
 };
 
 function App() {
+  useEffect(() => {
+    hideBootIfIdle()
+  }, [])
+
   return (
     <LanguageProvider>
       <Router>
@@ -100,6 +89,21 @@ function App() {
             <Route path="/feeding" element={
               <ProtectedRoute>
                 <DashboardLayout><Feeding /></DashboardLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/ponds" element={
+              <ProtectedRoute>
+                <DashboardLayout><HistoryOverview /></DashboardLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/water-quality" element={
+              <ProtectedRoute>
+                <DashboardLayout><WaterQuality /></DashboardLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/analytics" element={
+              <ProtectedRoute>
+                <DashboardLayout><GrowthDashboard /></DashboardLayout>
               </ProtectedRoute>
             } />
             <Route path="/history" element={

@@ -323,105 +323,238 @@ export const exportSeasonalExcel = async (report) => {
   return filename;
 };
 
-// Generate PDF report
-export const generatePDFReport = async (reportData, title = 'Report') => {
-  try {
-    // Create a styled HTML template for PDF with header
-    const htmlContent = `
-      <html>
-        <head>
-          <title>${title}</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 0; margin: 0; color: #1f2937; }
-            .header {
-              background: linear-gradient(135deg, #0ea5e9, #0284c7);
-              color: #fff;
-              padding: 24px 32px;
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-            }
-            .header-left { display: flex; align-items: center; gap: 16px; }
-            .header-icon {
-              width: 56px; height: 56px;
-              background: rgba(255,255,255,0.2);
-              border-radius: 12px;
-              display: flex; align-items: center; justify-content: center;
-              font-size: 28px;
-            }
-            .header-title { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
-            .header-subtitle { font-size: 12px; opacity: 0.85; margin-top: 2px; }
-            .header-right { text-align: right; font-size: 11px; opacity: 0.9; }
-            .content { padding: 24px 32px; }
-            .report-title { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
-            .report-meta { font-size: 12px; color: #6b7280; margin-bottom: 18px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-            th, td { border: 1px solid #e5e7eb; padding: 8px 10px; text-align: left; font-size: 13px; }
-            th { background-color: #f0f9ff; color: #0369a1; font-weight: 600; }
-            tr:nth-child(even) { background-color: #f9fafb; }
-            .footer { text-align: center; font-size: 10px; color: #9ca3af; margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
-            @media print {
-              .header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="header-left">
-              <div class="header-icon">&#x1F990;</div>
-              <div>
-                <div class="header-title">ShrimplySmart</div>
-                <div class="header-subtitle">Aquaculture Monitoring System</div>
-              </div>
-            </div>
-            <div class="header-right">
-              <div>${new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
-              <div>${new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</div>
-            </div>
-          </div>
-          <div class="content">
-            <div class="report-title">${title}</div>
-            <div class="report-meta">Report generated on ${new Date().toLocaleString('en-PH')}</div>
-            <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Temperature (°C)</th>
-                <th>pH Level</th>
-                <th>DO (mg/L)</th>
-                <th>TDS (ppm)</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${reportData.map(row => `
-                <tr>
-                  <td>${row.date}</td>
-                  <td>${row.temperature}</td>
-                  <td>${row.ph}</td>
-                  <td>${row.do}</td>
-                  <td>${row.tds}</td>
-                  <td>${row.status}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-            <div class="footer">ShrimplySmart &copy; ${new Date().getFullYear()} &mdash; Aquaculture Monitoring System &bull; Confidential Report</div>
-          </div>
-        </body>
-      </html>
-    `;
+const dash = (v) => (v === null || v === undefined || v === '' ? '—' : v);
+const esc = (v) => String(dash(v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    // Open print dialog
-    const printWindow = window.open('', '', 'height=600,width=800');
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    printWindow.print();
+const printHtmlReport = (title, innerHtml, { landscape = false } = {}) => {
+  const htmlContent = `
+    <html>
+      <head>
+        <title>${title}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 0; margin: 0; color: #1f2937; }
+          .header {
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+            color: #fff;
+            padding: 24px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          }
+          .header-left { display: flex; align-items: center; gap: 16px; }
+          .header-icon {
+            width: 56px; height: 56px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 28px;
+          }
+          .header-title { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
+          .header-subtitle { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+          .header-right { text-align: right; font-size: 11px; opacity: 0.9; }
+          .content { padding: 24px 32px; }
+          .report-title { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+          .report-meta { font-size: 12px; color: #6b7280; margin-bottom: 14px; }
+          .overview { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; font-size: 12px; margin-bottom: 16px; }
+          .section { margin-top: 28px; page-break-before: always; }
+          .section-title { font-size: 16px; font-weight: 700; margin: 0 0 6px; }
+          .section-meta { font-size: 11px; color: #6b7280; margin-bottom: 12px; }
+          .recs { margin: 8px 0 14px; }
+          .rec { font-size: 12px; padding: 6px 8px; border: 1px solid #e5e7eb; margin-bottom: 4px; border-radius: 4px; background: #f8fafc; }
+          .rec.warning { background: #fffbeb; border-color: #fde68a; }
+          .rec.critical { background: #fef2f2; border-color: #fecaca; }
+          table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+          th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; font-size: 11px; }
+          th { background-color: #f0f9ff; color: #0369a1; font-weight: 600; }
+          tr:nth-child(even) { background-color: #f9fafb; }
+          tr.total td { font-weight: 700; background: #e0f2fe; }
+          .footer { text-align: center; font-size: 10px; color: #9ca3af; margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
+          @media print {
+            .header, th, tr.total td, .rec { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            ${landscape ? '@page { size: landscape; margin: 12mm; }' : ''}
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-left">
+            <div class="header-icon">&#x1F990;</div>
+            <div>
+              <div class="header-title">ShrimplySmart</div>
+              <div class="header-subtitle">Aquaculture Monitoring System</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <div>${new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div>${new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</div>
+          </div>
+        </div>
+        <div class="content">
+          ${innerHtml}
+          <div class="footer">ShrimplySmart &copy; ${new Date().getFullYear()} &mdash; Aquaculture Monitoring System &bull; Confidential Report</div>
+        </div>
+      </body>
+    </html>
+  `;
+  const printWindow = window.open('', '', 'height=600,width=800');
+  printWindow.document.write(htmlContent);
+  printWindow.document.close();
+  printWindow.print();
+};
+
+const tableFromRows = (columns, rows) => `
+  <table>
+    <thead>
+      <tr>${columns.map((c) => `<th>${c.label}</th>`).join('')}</tr>
+    </thead>
+    <tbody>
+      ${rows.map((row) => `
+        <tr class="${row._total ? 'total' : ''}">
+          ${columns.map((c) => `<td>${dash(row[c.key])}</td>`).join('')}
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+`;
+
+// Generate PDF report
+export const generatePDFReport = async (reportData, title = 'Report', options = {}) => {
+  try {
+    const columns = options.columns || [
+      { key: 'date', label: 'Date' },
+      { key: 'temperature', label: 'Temperature (°C)' },
+      { key: 'ph', label: 'pH Level' },
+      { key: 'turbidity', label: 'Turbidity (NTU)' },
+      { key: 'tds', label: 'TDS (ppm)' },
+      { key: 'status', label: 'Status' },
+    ];
+    const subtitle = options.subtitle || `Report generated on ${new Date().toLocaleString('en-PH')}`;
+    const innerHtml = `
+      <div class="report-title">${title}</div>
+      <div class="report-meta">${subtitle}</div>
+      ${options.overviewHtml || ''}
+      ${tableFromRows(columns, reportData)}
+      ${options.extraHtml || ''}
+    `;
+    printHtmlReport(title, innerHtml, { landscape: options.landscape });
   } catch (error) {
     console.error('Error generating PDF report:', error);
     throw error;
   }
+};
+
+export const generateSeasonalPDF = async (report) => {
+  const summary = report?.summary || {};
+  const season = summary.season || {};
+  const daily = Array.isArray(summary.daily_rows) ? summary.daily_rows : [];
+  const totals = summary.totals || {};
+  const title = report?.title || `Seasonal Report — ${season.name || 'Season'}`;
+  const start = season.start_date || '';
+  const end = season.end_date || 'Active';
+
+  const columns = [
+    { key: 'date', label: 'Date' },
+    { key: 'shrimp_count', label: 'Shrimp qty' },
+    { key: 'avg_weight_grams', label: 'Avg wt (g)' },
+    { key: 'avg_temperature', label: 'Temp (°C)' },
+    { key: 'avg_ph', label: 'pH' },
+    { key: 'avg_turbidity', label: 'Turbidity' },
+    { key: 'avg_tds', label: 'TDS' },
+    { key: 'feed_kg', label: 'Feed (kg)' },
+    { key: 'harvest_kg', label: 'Harvest (kg)' },
+  ];
+
+  const rows = daily.map((r) => ({
+    date: r.date,
+    shrimp_count: r.shrimp_count,
+    avg_weight_grams: r.avg_weight_grams,
+    avg_temperature: r.avg_temperature,
+    avg_ph: r.avg_ph,
+    avg_turbidity: r.avg_turbidity,
+    avg_tds: r.avg_tds,
+    feed_kg: r.feed_kg ?? r.feed_grams,
+    harvest_kg: r.harvest_kg,
+  }));
+  rows.push({
+    _total: true,
+    date: 'TOTAL',
+    shrimp_count: '',
+    avg_weight_grams: '',
+    avg_temperature: totals.avg_temperature,
+    avg_ph: totals.avg_ph,
+    avg_turbidity: totals.avg_turbidity,
+    avg_tds: totals.avg_tds,
+    feed_kg: totals.total_feed_kg ?? totals.total_feed_grams,
+    harvest_kg: totals.total_harvest_kg,
+  });
+
+  const overviewHtml = `
+    <div class="overview">
+      <div><strong>Season:</strong> ${dash(season.name)}</div>
+      <div><strong>Status:</strong> ${season.is_active ? 'Active' : 'Ended'}</div>
+      <div><strong>Period:</strong> ${dash(start)} → ${dash(end)}</div>
+      <div><strong>Days with data:</strong> ${dash(totals.days_with_data ?? daily.length)}</div>
+      <div><strong>Initial shrimp qty:</strong> ${dash(season.initial_shrimp_quantity)}</div>
+      <div><strong>Current shrimp qty:</strong> ${dash(season.current_shrimp_quantity)}</div>
+      <div><strong>Total feed (kg):</strong> ${dash(totals.total_feed_kg ?? totals.total_feed_grams)}</div>
+      <div><strong>Total harvest (kg):</strong> ${dash(totals.total_harvest_kg ?? summary.harvest?.total_kg)}</div>
+    </div>
+  `;
+
+  const gf = summary.growth_forecast || null
+  const gfTable = Array.isArray(gf?.feature_table) && gf.feature_table.length
+    ? gf.feature_table
+    : (Array.isArray(gf?.feature_table_preview) ? gf.feature_table_preview : [])
+  const gfColumns = [
+    { key: 'date', label: 'Date' },
+    { key: 'doc', label: 'DOC' },
+    { key: 'feed_kg', label: 'Feed (kg)' },
+    { key: 'weather_temperature', label: 'Wx °C' },
+    { key: 'weather_precipitation_mm', label: 'Rain (mm)' },
+    { key: 'weather_humidity', label: 'Humidity %' },
+    { key: 'wq_class', label: 'WQ class' },
+    { key: 'abw_predicted', label: 'ABW pred (g)' },
+    { key: 'abw_observed', label: 'ABW obs (g)' },
+    { key: 'adg_predicted', label: 'ADG pred' },
+    { key: 'adg_modifier', label: 'ADG mod' },
+    { key: 'biomass_kg_predicted', label: 'Biomass pred (kg)' },
+  ]
+  const recs = Array.isArray(gf?.recommendations) ? gf.recommendations : []
+  const extraHtml = gf ? `
+    <div class="section">
+      <div class="section-title">Growth Forecast</div>
+      <div class="section-meta">Day-by-day ABW from feed + weather + water quality${gf.meta?.model_version ? ` · ${esc(gf.meta.model_version)}` : ''}</div>
+      <div class="overview">
+        <div><strong>Predicted harvest:</strong> ${gf.predicted_harvest_kg != null ? `${Number(gf.predicted_harvest_kg).toFixed(0)} kg` : '—'}</div>
+        <div><strong>Actual harvest:</strong> ${gf.actual_harvest_kg != null ? `${Number(gf.actual_harvest_kg).toFixed(0)} kg` : '—'}</div>
+        <div><strong>Final ABW:</strong> ${dash(gf.final_abw_g)} g</div>
+        <div><strong>Sampling points:</strong> ${dash(gf.meta?.sampling_points ?? gfTable.length)}</div>
+      </div>
+      <div class="section-title" style="font-size:13px;page-break-before:auto;margin-top:8px;">Recommendations</div>
+      <div class="recs">
+        ${recs.length
+          ? recs.map((rec) => `<div class="rec ${esc(rec.type || 'info')}">${esc(rec.message)}</div>`).join('')
+          : '<div class="rec">No recommendations generated.</div>'}
+      </div>
+      <div class="section-title" style="font-size:13px;page-break-before:auto;">Daily growth table (${gfTable.length} days)</div>
+      ${gfTable.length
+        ? tableFromRows(gfColumns, gfTable)
+        : '<p style="font-size:12px;color:#6b7280;">No growth feature rows for this season.</p>'}
+    </div>
+  ` : `
+    <div class="section">
+      <div class="section-title">Growth Forecast</div>
+      <p style="font-size:12px;color:#6b7280;">No growth forecast on this report. Generate the seasonal report again after growth data is saved.</p>
+    </div>
+  `
+
+  await generatePDFReport(rows, title, {
+    columns,
+    landscape: true,
+    overviewHtml,
+    extraHtml,
+    subtitle: `Season ${dash(season.name)} · ${dash(start)} to ${dash(end)} · generated ${new Date().toLocaleString('en-PH')}`,
+  });
 };
 
 // Email report

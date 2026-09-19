@@ -1,10 +1,10 @@
 const MetricCard = ({ title, value, unit, icon, color = 'primary', trend = null }) => {
   const colorClasses = {
     primary: 'from-blue-500 to-blue-600',
-    success: 'from-green-500 to-green-600',
-    warning: 'from-yellow-500 to-yellow-600',
-    danger: 'from-red-500 to-red-600',
-    info: 'from-cyan-500 to-cyan-600'
+    success: 'from-blue-600 to-blue-700',
+    warning: 'from-red-400 to-red-500',
+    danger: 'from-red-600 to-red-700',
+    info: 'from-sky-400 to-blue-500'
   }
 
   return (

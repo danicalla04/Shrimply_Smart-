@@ -31,7 +31,23 @@ ChartJS.register(
   Filler
 )
 
-/* ─── small sub-components ─────────────────────────────────────── */
+const DatePickerField = ({ value, onChange }) => {
+  const openPicker = (e) => {
+    const input = e.currentTarget.closest('.date-picker')?.querySelector('input[type="date"]')
+    try { input?.showPicker?.() } catch { /* ignore */ }
+  }
+  return (
+    <div className="date-picker">
+      <input
+        type="date"
+        value={value}
+        onChange={onChange}
+        onClick={(e) => { try { e.currentTarget.showPicker?.() } catch { /* ignore */ } }}
+      />
+      <button type="button" className="date-picker-btn" title="Select date" onClick={openPicker}>📅</button>
+    </div>
+  )
+}
 const Toast = ({ message, type, onClose }) => {
   useEffect(() => { const id = setTimeout(onClose, 3500); return () => clearTimeout(id) }, [onClose])
   const bg = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500'
@@ -91,6 +107,8 @@ const Reports = () => {
   const [emailModal, setEmailModal] = useState({ open: false, reportId: null })
   const [emailAddress, setEmailAddress] = useState('')
   const [emailSending, setEmailSending] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState(null)
+  const [deleting, setDeleting] = useState(false)
 
   // Toast
   const [toast, setToast] = useState(null)
@@ -285,25 +303,24 @@ const Reports = () => {
     } catch (err) { showToast('Failed to load report', 'error') }
   }
 
-  const handleRegenerateReport = async (id) => {
-    setGenerating(true)
-    try {
-      const report = await reportsService.regenerateReport(id)
-      setActiveReport(report)
-      showToast('Report regenerated!')
-      loadReportHistory()
-    } catch (err) { showToast('Regeneration failed', 'error') }
-    finally { setGenerating(false) }
+  const handleDeleteReport = (report) => {
+    setPendingDelete(report)
   }
 
-  const handleDeleteReport = async (id) => {
-    if (!confirm('Delete this report?')) return
+  const confirmDeleteReport = async () => {
+    if (!pendingDelete?.id) return
+    setDeleting(true)
     try {
-      await reportsService.deleteReport(id)
-      if (activeReport?.id === id) setActiveReport(null)
+      await reportsService.deleteReport(pendingDelete.id)
+      if (activeReport?.id === pendingDelete.id) setActiveReport(null)
+      setPendingDelete(null)
       showToast('Report deleted')
       loadReportHistory()
-    } catch (err) { showToast('Failed to delete', 'error') }
+    } catch (err) {
+      showToast('Failed to delete', 'error')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   /* ── email ─────────────────────────────────────────────────── */
@@ -320,62 +337,110 @@ const Reports = () => {
   }
 
   /* ── export helpers ────────────────────────────────────────── */
-  const handleExportExcel = async () => {
-    try {
-      // Seasonal report → proper per-date Excel (sensors / weather / feeds / harvest)
-      if (activeReport?.report_type === 'seasonal') {
-        if (!activeReport.summary?.daily_rows) {
-          showToast('Generate the Seasonal Report again, then export', 'error')
-          return
-        }
-        const filename = await reportsService.exportSeasonalExcel(activeReport)
-        showToast(`Exported ${filename}`)
+  const loadFullReport = async (id) => {
+    if (activeReport?.id === id && activeReport.summary) return activeReport
+    return reportsService.getReport(id)
+  }
+
+  const exportExcelForReport = async (report) => {
+    if (!report) {
+      showToast('Generate a report first', 'error')
+      return
+    }
+    if (report.report_type === 'seasonal') {
+      if (!report.summary?.daily_rows) {
+        showToast('This seasonal report has no daily rows to export', 'error')
         return
       }
+      const filename = await reportsService.exportSeasonalExcel(report)
+      showToast(`Exported ${filename}`)
+      return
+    }
 
-      const data = sensorData.map(r => ({
-        date: new Date(r.timestamp).toLocaleString(),
-        temperature: r.temperature,
-        ph: r.ph,
-        turbidity: r.turbidity,
-        tds: r.tds,
-        status: getStatusFromReading(r),
-      }))
-      if (!data.length) {
-        // Still export a stub row so print/export works with empty DB
-        data.push({
-          date: new Date().toLocaleString(),
-          temperature: null,
-          ph: null,
-          turbidity: null,
-          tds: null,
-          status: 'no data',
-        })
-        showToast('No sensor rows in DB — exporting empty placeholder sheet')
+    const daily = Array.isArray(report.summary?.daily_rows) ? report.summary.daily_rows : []
+    const data = daily.length
+      ? daily.map((r) => ({
+          date: r.date,
+          temperature: r.avg_temperature,
+          ph: r.avg_ph,
+          turbidity: r.avg_turbidity,
+          tds: r.avg_tds,
+          status: r.status || '',
+        }))
+      : [{
+          date: `${report.start_date || ''} → ${report.end_date || ''}`,
+          temperature: report.summary?.sensor_data?.temperature?.avg ?? null,
+          ph: report.summary?.sensor_data?.ph?.avg ?? null,
+          turbidity: report.summary?.sensor_data?.turbidity?.avg ?? null,
+          tds: report.summary?.sensor_data?.tds?.avg ?? null,
+          status: 'summary',
+        }]
+    const filename = `${(report.title || 'report').replace(/[^\w\-]+/g, '_')}.xlsx`
+    await reportsService.exportToExcel(data, filename)
+    showToast('Excel exported!')
+  }
+
+  const exportPdfForReport = async (report) => {
+    if (!report) {
+      showToast('Generate a report first', 'error')
+      return
+    }
+    if (report.report_type === 'seasonal') {
+      if (!report.summary?.daily_rows) {
+        showToast('This seasonal report has no daily rows to export', 'error')
+        return
       }
-      await reportsService.exportToExcel(data, `sensor_readings_export.xlsx`)
-      showToast('Excel exported!')
+      await reportsService.generateSeasonalPDF(report)
+      return
+    }
+
+    const daily = Array.isArray(report.summary?.daily_rows) ? report.summary.daily_rows : []
+    const title = report.title || 'Report'
+    const data = daily.length
+      ? daily.map((r) => ({
+          date: r.date,
+          temperature: r.avg_temperature,
+          ph: r.avg_ph,
+          turbidity: r.avg_turbidity,
+          tds: r.avg_tds,
+          status: r.status || '',
+        }))
+      : [{
+          date: `${report.start_date || ''} → ${report.end_date || ''}`,
+          temperature: report.summary?.sensor_data?.temperature?.avg ?? null,
+          ph: report.summary?.sensor_data?.ph?.avg ?? null,
+          turbidity: report.summary?.sensor_data?.turbidity?.avg ?? null,
+          tds: report.summary?.sensor_data?.tds?.avg ?? null,
+          status: 'summary',
+        }]
+    await reportsService.generatePDFReport(data, title)
+  }
+
+  const handleExportExcel = async () => {
+    try {
+      await exportExcelForReport(activeReport)
     } catch (error) { showToast('Export failed: ' + error.message, 'error') }
   }
 
   const handleGeneratePDF = async () => {
     try {
-      let data = sensorData.slice(0, 100).map(r => ({
-        date: new Date(r.timestamp).toLocaleDateString(), temperature: r.temperature,
-        ph: r.ph, do: r.oxygen, tds: r.tds, status: getStatusFromReading(r),
-      }))
-      if (!data.length) {
-        data = [{
-          date: new Date().toLocaleDateString(),
-          temperature: null,
-          ph: null,
-          do: null,
-          tds: null,
-          status: 'no data',
-        }]
-        showToast('No sensor rows — generating PDF with empty placeholder')
-      }
-      await reportsService.generatePDFReport(data, `Sensor Report - last ${HISTORY_DAYS} days`)
+      await exportPdfForReport(activeReport)
+    } catch (error) { showToast('PDF generation failed: ' + error.message, 'error') }
+  }
+
+  const handleHistoryExcel = async (id) => {
+    try {
+      const report = await loadFullReport(id)
+      setActiveReport(report)
+      await exportExcelForReport(report)
+    } catch (error) { showToast('Export failed: ' + error.message, 'error') }
+  }
+
+  const handleHistoryPdf = async (id) => {
+    try {
+      const report = await loadFullReport(id)
+      setActiveReport(report)
+      await exportPdfForReport(report)
     } catch (error) { showToast('PDF generation failed: ' + error.message, 'error') }
   }
 
@@ -552,6 +617,10 @@ const Reports = () => {
   const insightColor = (type) => ({ critical: 'border-red-400 bg-red-50 text-red-700', warning: 'border-yellow-400 bg-yellow-50 text-yellow-700', info: 'border-blue-400 bg-blue-50 text-blue-700' }[type] || 'border-slate-400 bg-slate-50 text-slate-700')
   const insightIcon = (type) => ({ critical: '🔴', warning: '🟡', info: '🔵' }[type] || 'ℹ️')
 
+  const exportIdle = !activeReport
+  const exportBtnBase = 'px-4 py-2.5 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium'
+  const exportIdleClass = `${exportBtnBase} bg-cyan-600 hover:bg-cyan-700`
+
   /* ─── RENDER ─────────────────────────────────────────────────── */
   return (
     <div className="p-6 space-y-8">
@@ -597,11 +666,11 @@ const Reports = () => {
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="block text-xs text-slate-600 mb-1">Start Date</label>
-              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="input-field text-sm px-3 py-2 rounded-xl" />
+              <DatePickerField value={customStart} onChange={e => setCustomStart(e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-slate-600 mb-1">End Date</label>
-              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="input-field text-sm px-3 py-2 rounded-xl" />
+              <DatePickerField value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
             </div>
             <button onClick={() => handleGenerateReport('custom')} disabled={generating || !customStart || !customEnd}
               className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
@@ -616,19 +685,21 @@ const Reports = () => {
           <div className="flex flex-wrap gap-3">
             <button
               onClick={handleExportExcel}
-              disabled={loading || (activeReport?.report_type !== 'seasonal' && sensorData.length === 0)}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium"
-              title={activeReport?.report_type === 'seasonal' ? 'Export seasonal daily Excel' : 'Export sensor readings'}
+              disabled={exportIdle || loading || (activeReport?.report_type !== 'seasonal' && sensorData.length === 0)}
+              className={exportIdle ? exportIdleClass : `${exportBtnBase} bg-emerald-700 hover:bg-emerald-800`}
+              title={exportIdle ? 'Generate a report first' : (activeReport?.report_type === 'seasonal' ? 'Export seasonal daily Excel' : 'Export sensor readings')}
             >
               📊 {t('exportToExcel')}
             </button>
-            <button onClick={handleGeneratePDF} disabled={loading || sensorData.length === 0}
-              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium">
+            <button onClick={handleGeneratePDF} disabled={exportIdle || loading}
+              className={exportIdle ? exportIdleClass : `${exportBtnBase} bg-rose-700 hover:bg-rose-800`}
+              title={exportIdle ? 'Generate a report first' : 'Export the generated report as PDF'}>
               📄 {t('generatePDFReport')}
             </button>
             <button onClick={() => { if (activeReport) openEmailModal(activeReport.id); else showToast('Generate a report first', 'error') }}
-              disabled={loading}
-              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium">
+              disabled={exportIdle || loading}
+              className={exportIdle ? exportIdleClass : `${exportBtnBase} bg-indigo-700 hover:bg-indigo-800`}
+              title={exportIdle ? 'Generate a report first' : undefined}>
               📧 {t('emailReport')}
             </button>
           </div>
@@ -1043,8 +1114,10 @@ const Reports = () => {
               </button>
               <span className="text-xs text-slate-500">rows</span>
             </div>
-            <input type="date" value={dateSearch} onChange={(e) => { setDateSearch(e.target.value); setCurrentPage(1) }}
-              className="input-field text-sm px-3 py-2 rounded-xl" />
+            <DatePickerField
+              value={dateSearch}
+              onChange={(e) => { setDateSearch(e.target.value); setCurrentPage(1) }}
+            />
             {dateSearch && (
               <button onClick={() => { setDateSearch(''); setCurrentPage(1) }} className="px-3 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
                 {t('clear')}
@@ -1071,7 +1144,7 @@ const Reports = () => {
               {historicalData.length === 0 ? (
                 <tr><td colSpan="6" className="px-4 py-8 text-center text-slate-500">{dateSearch ? t('noReadingsFound') : t('noReadingsAvailable')}</td></tr>
               ) : historicalData.map((row, index) => (
-                <tr key={index} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                <tr key={index} className="reports-history-row">
                   <td className="px-4 py-3 text-sm text-slate-700"><div>{row.date}</div><div className="text-xs text-slate-500">{row.time}</div></td>
                   <td className="px-4 py-3 text-sm text-slate-700">{row.temperature}</td>
                   <td className="px-4 py-3 text-sm text-slate-700">{row.ph}</td>
@@ -1132,11 +1205,13 @@ const Reports = () => {
                   <div className="flex items-center gap-1 ml-3 flex-shrink-0">
                     <button onClick={() => handleViewReport(r.id)} title="View"
                       className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm">👁️</button>
-                    <button onClick={() => handleRegenerateReport(r.id)} title="Regenerate" disabled={generating}
-                      className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm disabled:opacity-40">🔄</button>
+                    <button onClick={() => handleHistoryExcel(r.id)} title="Export Excel"
+                      className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm">📊</button>
+                    <button onClick={() => handleHistoryPdf(r.id)} title="Export PDF"
+                      className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm">📄</button>
                     <button onClick={() => openEmailModal(r.id)} title="Email"
                       className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm">📧</button>
-                    <button onClick={() => handleDeleteReport(r.id)} title="Delete"
+                    <button onClick={() => handleDeleteReport(r)} title="Delete"
                       className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm">🗑️</button>
                   </div>
                 </div>
@@ -1239,6 +1314,26 @@ const Reports = () => {
           </div>
         </div>
       )}
+
+      {pendingDelete ? (
+        <div className="aq-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-report-title">
+          <div className="card aq-modal">
+            <h3 id="delete-report-title" className="text-lg font-semibold mb-2">Delete report</h3>
+            <p className="text-sm text-cyan-100/80 mb-4">
+              Are you sure you want to delete this report? This cannot be undone.
+            </p>
+            <p className="text-xs text-cyan-200/60 mb-5">{pendingDelete.title}</p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setPendingDelete(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button type="button" className="btn-modern" onClick={confirmDeleteReport} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
