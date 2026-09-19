@@ -1,9 +1,21 @@
 // Centralized API configuration
 // All service files should import API_BASE from here
 
-export const API_BASE = import.meta.env.VITE_BACKEND_URL
-    ? `${import.meta.env.VITE_BACKEND_URL.replace(/\/$/, '')}/api`
-    : 'http://127.0.0.1:8000/api'
+function resolveApiBase() {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return '/api'
+    }
+  }
+  const backend = import.meta.env.VITE_BACKEND_URL
+  if (backend) {
+    return `${String(backend).replace(/\/$/, '')}/api`
+  }
+  return 'http://127.0.0.1:8000/api'
+}
+
+export const API_BASE = resolveApiBase()
 
 // In local development (`npm run dev`), prefer same-origin calls via the Vite proxy.
 // This avoids CORS/preflight and hostname resolution quirks (localhost vs 127.0.0.1).
