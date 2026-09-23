@@ -6,7 +6,6 @@ from .models import (
     WeatherForecast, Season, HarvestEntry, SeasonHistory, HistorySettings,
     FeederTelemetry, FeedType, DailyGrowthMetric, GrowthPrediction,
 )
-from .sensor_calibration import apply_calibration_to_reading
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -31,9 +30,6 @@ class SensorReadingSerializer(serializers.ModelSerializer):
     class Meta:
         model = SensorReading
         fields = '__all__'
-
-    def to_representation(self, instance):
-        return apply_calibration_to_reading(instance)
 
 
 class ThresholdSerializer(serializers.ModelSerializer):

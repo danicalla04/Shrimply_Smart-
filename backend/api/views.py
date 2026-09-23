@@ -276,7 +276,7 @@ class RegisterView(generics.CreateAPIView):
 class StandardPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
-    max_page_size = 100
+    max_page_size = 10000
 
 
 def _sensor_window_hours(request, default=24):
@@ -2459,12 +2459,9 @@ def water_quality_status(request):
             # Only SQL/JSON null means disconnected. 0 is a valid number.
             return value is None
 
-        from .sensor_calibration import apply_calibration_value, get_calibration_dict
-        cal = get_calibration_dict()
-
         for param, ranges in optimal_ranges.items():
             raw_value = getattr(latest_reading, param, None)
-            value = apply_calibration_value(param, raw_value, cal)
+            value = raw_value
             if _is_disconnected(param, value):
                 disconnected.append(ranges['name'])
                 issues.append(f"{ranges['name']} sensor is disconnected (no reading)")

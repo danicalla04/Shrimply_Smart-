@@ -65,10 +65,32 @@ function sqlNumOrNull($value, $asInt = false) {
     return (string)(float)$value;
 }
 
-$temperature = getNullableFloat("temperature");
-$ph          = getNullableFloat("ph");
-$turbidity   = getNullableFloat("turbidity");
-$tds         = getNullableInt("tds");
+/** Settings → Sensor Data Adjustment: adjusted = (raw * scale) + offset */
+function applyCalibration($conn, $parameter, $value, $asInt = false) {
+    if ($value === null) {
+        return null;
+    }
+    $scale = 1.0;
+    $offset = 0.0;
+    $safe = $conn->real_escape_string($parameter);
+    $res = $conn->query(
+        "SELECT scale, offset FROM api_sensorcalibration WHERE parameter='{$safe}' LIMIT 1"
+    );
+    if ($res && ($row = $res->fetch_assoc())) {
+        $scale = (float)$row["scale"];
+        $offset = (float)$row["offset"];
+    }
+    $adjusted = ((float)$value * $scale) + $offset;
+    if ($asInt) {
+        return (int)round($adjusted);
+    }
+    return round($adjusted, 2);
+}
+
+$temperature = applyCalibration($conn, "temperature", getNullableFloat("temperature"));
+$ph          = applyCalibration($conn, "ph", getNullableFloat("ph"));
+$turbidity   = applyCalibration($conn, "turbidity", getNullableFloat("turbidity"));
+$tds         = applyCalibration($conn, "tds", getNullableInt("tds"), true);
 
 $tempSql = sqlNumOrNull($temperature);
 $phSql   = sqlNumOrNull($ph);

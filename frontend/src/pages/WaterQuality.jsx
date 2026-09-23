@@ -19,11 +19,11 @@ import { useLanguage } from '../context/LanguageContext'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip)
 
 const HISTORY_RANGES = [
-  { id: 'min', label: 'Min', hours: 0.25 },
-  { id: 'hour', label: 'Hour', hours: 1 },
+  { id: 'min', label: 'Min', hours: 1 },
+  { id: 'hour', label: 'Hour', hours: 12 },
   { id: 'day', label: 'Day', hours: 24 },
   { id: 'week', label: 'Week', hours: 168 },
-  { id: 'month', label: 'Month', hours: 720 },
+  { id: 'month', label: 'Month', hours: null },
 ]
 
 function hasChartValue(row) {
@@ -35,13 +35,12 @@ function rowsFromDatabase(packetRows, hours) {
   const all = [...(packetRows || [])]
     .filter((row) => row?.timestamp && hasChartValue(row))
     .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-  if (all.length < 2) return all
+  if (hours == null) return all
   const cutoff = Date.now() - hours * 3600 * 1000
-  const inRange = all.filter((row) => {
+  return all.filter((row) => {
     const t = new Date(row.timestamp).getTime()
     return Number.isFinite(t) && t >= cutoff
   })
-  return inRange.length >= 2 ? inRange : all
 }
 
 function formatChartLabel(iso, rangeId) {
@@ -107,7 +106,7 @@ export default function WaterQuality() {
     const load = async () => {
       const [latest, readings] = await Promise.all([
         fetchLatestSensors().catch(() => ({})),
-        getSensorReadings(30, 1, 100).catch(() => ({ results: [] })),
+        getSensorReadings(null, 1, 10000, range.hours).catch(() => ({ results: [] })),
       ])
       setTemperature(normalizeSensorValue('temperature', latest.temperature))
       setPh(normalizeSensorValue('ph', latest.ph))
@@ -115,8 +114,8 @@ export default function WaterQuality() {
       setTds(normalizeSensorValue('tds', latest.tds))
       setStamp(latest.timestamp || null)
       const packetRows = [...(readings.results || [])]
-      setHistory(packetRows.slice(0, 12))
       const rows = rowsFromDatabase(packetRows, range.hours)
+      setHistory([...rows].reverse())
       const labels = rows.map((r) => formatChartLabel(r.timestamp, range.id))
       setCharts((prev) => ({
         temperature: { ...prev.temperature, labels, datasets: [{ ...prev.temperature.datasets[0], data: rows.map((r) => r.temperature) }] },
