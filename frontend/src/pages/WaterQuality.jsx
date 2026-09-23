@@ -12,7 +12,7 @@ import {
 import GaugeRing from '../components/GaugeRing'
 import SeasonSensorAverages from '../components/SeasonSensorAverages'
 import { classifySensor, summarizeOverallQuality } from '../services/sensorLabels'
-import { fetchLatestSensors, getSensorReadings, getSensorChart, isSensorDisconnected, isSensorStreamFresh, normalizeSensorValue } from '../services/sensors'
+import { fetchLatestSensors, getSensorReadings, isSensorDisconnected, isSensorStreamFresh, normalizeSensorValue } from '../services/sensors'
 import { fetchThresholds } from '../services/settings'
 import { useLanguage } from '../context/LanguageContext'
 
@@ -31,14 +31,17 @@ function hasChartValue(row) {
   return [row.temperature, row.ph, row.turbidity, row.tds].some((v) => v != null && v !== '')
 }
 
-function pickChartRows(chartRows, packetRows) {
-  const fromChart = [...(chartRows || [])].filter((row) => row?.timestamp && hasChartValue(row))
-  if (fromChart.length) {
-    return fromChart.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-  }
-  return [...(packetRows || [])]
+function rowsFromDatabase(packetRows, hours) {
+  const all = [...(packetRows || [])]
     .filter((row) => row?.timestamp && hasChartValue(row))
     .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+  if (all.length < 2) return all
+  const cutoff = Date.now() - hours * 3600 * 1000
+  const inRange = all.filter((row) => {
+    const t = new Date(row.timestamp).getTime()
+    return Number.isFinite(t) && t >= cutoff
+  })
+  return inRange.length >= 2 ? inRange : all
 }
 
 function formatChartLabel(iso, rangeId) {
@@ -102,10 +105,9 @@ export default function WaterQuality() {
   useEffect(() => {
     const range = HISTORY_RANGES.find((r) => r.id === rangeId) || HISTORY_RANGES[1]
     const load = async () => {
-      const [latest, readings, chart] = await Promise.all([
+      const [latest, readings] = await Promise.all([
         fetchLatestSensors().catch(() => ({})),
-        getSensorReadings(7, 1, 80).catch(() => ({ results: [] })),
-        getSensorChart(range.hours).catch(() => ({ results: [] })),
+        getSensorReadings(30, 1, 100).catch(() => ({ results: [] })),
       ])
       setTemperature(normalizeSensorValue('temperature', latest.temperature))
       setPh(normalizeSensorValue('ph', latest.ph))
@@ -114,7 +116,7 @@ export default function WaterQuality() {
       setStamp(latest.timestamp || null)
       const packetRows = [...(readings.results || [])]
       setHistory(packetRows.slice(0, 12))
-      const rows = pickChartRows(chart.results, packetRows)
+      const rows = rowsFromDatabase(packetRows, range.hours)
       const labels = rows.map((r) => formatChartLabel(r.timestamp, range.id))
       setCharts((prev) => ({
         temperature: { ...prev.temperature, labels, datasets: [{ ...prev.temperature.datasets[0], data: rows.map((r) => r.temperature) }] },

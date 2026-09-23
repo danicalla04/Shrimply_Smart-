@@ -448,31 +448,15 @@ class SensorReadingViewSet(viewsets.ModelViewSet):
             max_points = min(max(20, int(request.query_params.get('max_points', 160))), 400)
         except (ValueError, TypeError):
             max_points = 160
-        now = timezone.now()
-        start = now - timedelta(hours=hours)
-        qs = SensorReading.objects.filter(timestamp__gte=start).order_by('timestamp')
-        rows = list(qs.values('timestamp', 'temperature', 'ph', 'turbidity', 'tds'))
-        # 10-minute history leaves gaps. Plot the stored snapshots themselves
-        # instead of filling the window with empty slots that hide the line.
-        if len(rows) < 2:
-            recent = list(
-                SensorReading.objects.order_by('-timestamp').values(
-                    'timestamp', 'temperature', 'ph', 'turbidity', 'tds'
-                )[:40]
-            )
-            recent.reverse()
-            rows = recent
-        if len(rows) > max_points:
-            results = _time_bucket_chart(rows, start, now, _chart_bucket_count(hours, max_points))
-            results = [
-                point for point in results
-                if point.get('temperature') is not None
-                or point.get('ph') is not None
-                or point.get('turbidity') is not None
-                or point.get('tds') is not None
-            ]
-        else:
-            results = [point for point in (_serialize_chart_row(row) for row in rows) if point]
+        # Always plot stored rows. PHP UTC vs Manila can empty a Min/Hour
+        # window even though api_sensorreading has values.
+        rows = list(
+            SensorReading.objects.order_by('-timestamp').values(
+                'timestamp', 'temperature', 'ph', 'turbidity', 'tds'
+            )[:max_points]
+        )
+        rows.reverse()
+        results = [point for point in (_serialize_chart_row(row) for row in rows) if point]
         return Response({'hours': hours, 'count': len(results), 'results': results})
 
     def list(self, request, *args, **kwargs):
