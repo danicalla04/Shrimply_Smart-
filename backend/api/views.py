@@ -315,6 +315,19 @@ def _aware_ts(ts):
     return ts
 
 
+def _serialize_chart_row(row):
+    ts = _aware_ts(row.get('timestamp'))
+    if ts is None:
+        return None
+    return {
+        'timestamp': ts.isoformat(),
+        'temperature': row.get('temperature'),
+        'ph': row.get('ph'),
+        'turbidity': row.get('turbidity'),
+        'tds': row.get('tds'),
+    }
+
+
 def _mean(values):
     vals = [v for v in values if v is not None]
     if not vals:
@@ -437,9 +450,27 @@ class SensorReadingViewSet(viewsets.ModelViewSet):
             max_points = 160
         now = timezone.now()
         start = now - timedelta(hours=hours)
-        qs = SensorReading.objects.filter(timestamp__gte=start, timestamp__lte=now).order_by('timestamp')
+        # PHP writes UTC_TIMESTAMP(); allow a little clock skew so the live row stays in.
+        qs = SensorReading.objects.filter(
+            timestamp__gte=start,
+            timestamp__lte=now + timedelta(minutes=20),
+        ).order_by('timestamp')
         rows = list(qs.values('timestamp', 'temperature', 'ph', 'turbidity', 'tds'))
-        results = _time_bucket_chart(rows, start, now, _chart_bucket_count(hours, max_points))
+        # Hour/Min can look empty while gauges work: only the live row is "now",
+        # older 10-minute inserts may sit just outside the window after a UTC/local mix.
+        if len(rows) < 2:
+            recent = list(
+                SensorReading.objects.order_by('-timestamp').values(
+                    'timestamp', 'temperature', 'ph', 'turbidity', 'tds'
+                )[:12]
+            )
+            recent.reverse()
+            rows = recent
+        bucket_count = _chart_bucket_count(hours, max_points)
+        if 0 < len(rows) <= max(8, bucket_count // 3):
+            results = [point for point in (_serialize_chart_row(row) for row in rows) if point]
+        else:
+            results = _time_bucket_chart(rows, start, now, bucket_count)
         return Response({'hours': hours, 'count': len(results), 'results': results})
 
     def list(self, request, *args, **kwargs):

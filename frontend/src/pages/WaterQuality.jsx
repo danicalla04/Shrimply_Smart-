@@ -60,8 +60,9 @@ function series(color) {
       backgroundColor: color.replace('1)', '0.16)'),
       fill: true,
       tension: 0.25,
-      pointRadius: 0,
-      spanGaps: false,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+      spanGaps: true,
     }],
   }
 }
@@ -190,6 +191,9 @@ export default function WaterQuality() {
           </div>
         ))}
       </div>
+      {!Object.values(charts).some((c) => (c.datasets?.[0]?.data || []).some((v) => v != null)) && (
+        <p className="aq-sub mb-5">Charts are empty if this window has no stored snapshots yet. Gauges always show the latest row.</p>
+      )}
 
       <div className="card">
         <div className="pond-kicker mb-2">Sensor activity</div>
