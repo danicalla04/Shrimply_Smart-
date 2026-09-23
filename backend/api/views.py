@@ -450,27 +450,29 @@ class SensorReadingViewSet(viewsets.ModelViewSet):
             max_points = 160
         now = timezone.now()
         start = now - timedelta(hours=hours)
-        # PHP writes UTC_TIMESTAMP(); allow a little clock skew so the live row stays in.
-        qs = SensorReading.objects.filter(
-            timestamp__gte=start,
-            timestamp__lte=now + timedelta(minutes=20),
-        ).order_by('timestamp')
+        qs = SensorReading.objects.filter(timestamp__gte=start).order_by('timestamp')
         rows = list(qs.values('timestamp', 'temperature', 'ph', 'turbidity', 'tds'))
-        # Hour/Min can look empty while gauges work: only the live row is "now",
-        # older 10-minute inserts may sit just outside the window after a UTC/local mix.
+        # 10-minute history leaves gaps. Plot the stored snapshots themselves
+        # instead of filling the window with empty slots that hide the line.
         if len(rows) < 2:
             recent = list(
                 SensorReading.objects.order_by('-timestamp').values(
                     'timestamp', 'temperature', 'ph', 'turbidity', 'tds'
-                )[:12]
+                )[:40]
             )
             recent.reverse()
             rows = recent
-        bucket_count = _chart_bucket_count(hours, max_points)
-        if 0 < len(rows) <= max(8, bucket_count // 3):
-            results = [point for point in (_serialize_chart_row(row) for row in rows) if point]
+        if len(rows) > max_points:
+            results = _time_bucket_chart(rows, start, now, _chart_bucket_count(hours, max_points))
+            results = [
+                point for point in results
+                if point.get('temperature') is not None
+                or point.get('ph') is not None
+                or point.get('turbidity') is not None
+                or point.get('tds') is not None
+            ]
         else:
-            results = _time_bucket_chart(rows, start, now, bucket_count)
+            results = [point for point in (_serialize_chart_row(row) for row in rows) if point]
         return Response({'hours': hours, 'count': len(results), 'results': results})
 
     def list(self, request, *args, **kwargs):

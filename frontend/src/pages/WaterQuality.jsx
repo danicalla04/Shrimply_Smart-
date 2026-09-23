@@ -26,6 +26,21 @@ const HISTORY_RANGES = [
   { id: 'month', label: 'Month', hours: 720 },
 ]
 
+function hasChartValue(row) {
+  if (!row) return false
+  return [row.temperature, row.ph, row.turbidity, row.tds].some((v) => v != null && v !== '')
+}
+
+function pickChartRows(chartRows, packetRows) {
+  const fromChart = [...(chartRows || [])].filter((row) => row?.timestamp && hasChartValue(row))
+  if (fromChart.length) {
+    return fromChart.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+  }
+  return [...(packetRows || [])]
+    .filter((row) => row?.timestamp && hasChartValue(row))
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+}
+
 function formatChartLabel(iso, rangeId) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
@@ -89,7 +104,7 @@ export default function WaterQuality() {
     const load = async () => {
       const [latest, readings, chart] = await Promise.all([
         fetchLatestSensors().catch(() => ({})),
-        getSensorReadings(1, 1, 12).catch(() => ({ results: [] })),
+        getSensorReadings(7, 1, 80).catch(() => ({ results: [] })),
         getSensorChart(range.hours).catch(() => ({ results: [] })),
       ])
       setTemperature(normalizeSensorValue('temperature', latest.temperature))
@@ -98,8 +113,8 @@ export default function WaterQuality() {
       setTds(normalizeSensorValue('tds', latest.tds))
       setStamp(latest.timestamp || null)
       const packetRows = [...(readings.results || [])]
-      setHistory(packetRows)
-      const rows = [...(chart.results || [])].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+      setHistory(packetRows.slice(0, 12))
+      const rows = pickChartRows(chart.results, packetRows)
       const labels = rows.map((r) => formatChartLabel(r.timestamp, range.id))
       setCharts((prev) => ({
         temperature: { ...prev.temperature, labels, datasets: [{ ...prev.temperature.datasets[0], data: rows.map((r) => r.temperature) }] },
