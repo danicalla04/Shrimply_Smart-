@@ -7,7 +7,7 @@
  * Behavior:
  *   - Always refresh the newest row (live display every ~5s)
  *   - INSERT a new history row only every 10 minutes
- *     (avoids flooding api_sensorreading)
+ *     (clock uses the previous frozen row, not the live timestamp)
  *
  * Place in: C:\xampp\htdocs\sensor_api.php
  * ─────────────────────────────────────────────────────────────
@@ -75,24 +75,35 @@ $phSql   = sqlNumOrNull($ph);
 $ntuSql  = sqlNumOrNull($turbidity);
 $tdsSql  = sqlNumOrNull($tds, true);
 
-// Newest row + age in seconds (UTC)
-$latest = $conn->query(
+// Live UPDATE always refreshes the newest row (and its timestamp) so gauges
+// stay online. That reset used to make "age" 0 forever, so no history INSERTs.
+// The 10-minute clock now uses the *previous* row, which stays frozen.
+$tip = $conn->query(
     "SELECT id, TIMESTAMPDIFF(SECOND, timestamp, UTC_TIMESTAMP()) AS age_sec
      FROM `{$table}`
      ORDER BY id DESC
-     LIMIT 1"
+     LIMIT 2"
 );
 
 $needInsert = true;
 $latestId = null;
 $ageSec = null;
+$prevAgeSec = null;
 
-if ($latest && ($row = $latest->fetch_assoc())) {
-    $latestId = (int)$row["id"];
-    $ageSec = (int)$row["age_sec"];
-    // Keep updating the tip for live dashboard; insert only every N minutes
-    if ($ageSec < ($HISTORY_INTERVAL_MIN * 60)) {
-        $needInsert = false;
+if ($tip) {
+    $first = $tip->fetch_assoc();
+    $second = $tip->fetch_assoc();
+    if ($first) {
+        $latestId = (int)$first["id"];
+        $ageSec = (int)$first["age_sec"];
+        if ($second) {
+            $prevAgeSec = (int)$second["age_sec"];
+            if ($prevAgeSec < ($HISTORY_INTERVAL_MIN * 60)) {
+                $needInsert = false;
+            }
+        }
+        // Only one row: INSERT on the next POST so a frozen row exists
+        // for the 10-minute clock. Live UPDATE cannot use its own timestamp.
     }
 }
 
@@ -117,7 +128,7 @@ if ($needInsert) {
             WHERE id={$latestId}";
     if ($conn->query($sql) === true) {
         http_response_code(200);
-        echo "OK - LIVE UPDATE id={$latestId} age_was={$ageSec}s"
+        echo "OK - LIVE UPDATE id={$latestId} live_age={$ageSec}s prev_age=" . ($prevAgeSec === null ? "none" : $prevAgeSec . "s")
            . " (temp={$tempSql}, ph={$phSql}, ntu={$ntuSql}, tds={$tdsSql})";
     } else {
         http_response_code(500);
