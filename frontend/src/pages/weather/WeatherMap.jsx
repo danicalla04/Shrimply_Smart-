@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { MapContainer, Marker, TileLayer } from 'react-leaflet';
+import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { buildRadarTileUrl, fetchRainviewerTimeline } from '../../services/weather/rainviewer';
@@ -14,6 +14,16 @@ L.Icon.Default.mergeOptions({
   iconUrl: markerIcon,
   shadowUrl: markerShadow,
 });
+
+const PLACE_ZOOM = 9;
+
+function FocusPlace({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView(center, PLACE_ZOOM);
+  }, [center, map]);
+  return null;
+}
 
 export default function WeatherMap({ location }) {
   const [radarFrame, setRadarFrame] = useState(null);
@@ -48,7 +58,7 @@ export default function WeatherMap({ location }) {
 
   const radarUrl = useMemo(() => {
     if (!radarFrame) return null;
-    return buildRadarTileUrl({ host: radarFrame.host, path: radarFrame.path, size: 256, color: 2, smooth: 1, snow: 1 });
+    return buildRadarTileUrl({ host: radarFrame.host, path: radarFrame.path, size: 256, color: 6, smooth: 1, snow: 1 });
   }, [radarFrame]);
 
   return (
@@ -65,8 +75,18 @@ export default function WeatherMap({ location }) {
         </div>
       </div>
 
-      <div className="h-[420px] rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
-        <MapContainer center={center} zoom={7} scrollWheelZoom={false} style={{ height: '100%', width: '100%' }}>
+      <div className="mb-3 flex flex-wrap gap-3 text-sm" style={{ color: '#e6f7ff' }}>
+        <span className="font-semibold">What to look at:</span>
+        <span>the pin is your selected place.</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-6 rounded" style={{ background: '#38bdf8' }} /> light rain</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-6 rounded" style={{ background: '#facc15' }} /> moderate</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-3 w-6 rounded" style={{ background: '#ef4444' }} /> heavy</span>
+        <span>A clear area means no rain is over it in this radar frame.</span>
+      </div>
+
+      <div className="h-[420px] rounded-2xl overflow-hidden border border-sky-400/40 shadow-sm">
+        <MapContainer center={center} zoom={PLACE_ZOOM} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
+          <FocusPlace center={center} />
           <TileLayer
             attribution='&copy; OpenStreetMap contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -76,9 +96,10 @@ export default function WeatherMap({ location }) {
             <TileLayer
               attribution='Weather data by Rain Viewer'
               url={radarUrl}
-              opacity={0.6}
+              opacity={0.85}
               zIndex={10}
-              maxZoom={7}
+              maxNativeZoom={7}
+              maxZoom={12}
             />
           )}
 
@@ -87,7 +108,7 @@ export default function WeatherMap({ location }) {
       </div>
 
       <div className="mt-2 text-xs text-slate-500">
-        Weather data by Rain Viewer (radar overlay). Map base by OpenStreetMap.
+        Colored patches are live rain radar. Zoom with the mouse or the + / − buttons. Weather data by Rain Viewer. Map base by OpenStreetMap.
       </div>
     </div>
   );

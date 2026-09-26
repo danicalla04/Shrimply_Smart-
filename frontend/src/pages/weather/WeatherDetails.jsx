@@ -31,7 +31,7 @@ function num(v) {
 }
 
 export default function WeatherDetails() {
-  const { forecast, air, settings, location } = useWeather();
+  const { forecast, settings, location } = useWeather();
 
   const tempSeries = useMemo(() => buildHourlySeries(forecast, 'temperature_2m', 48), [forecast]);
   const rainSeries = useMemo(() => buildHourlySeries(forecast, 'precipitation_probability', 48), [forecast]);
@@ -94,8 +94,6 @@ export default function WeatherDetails() {
     },
   };
 
-  const airCurrent = air?.current || null;
-
   return (
     <div className="space-y-6">
       {/* Charts */}
@@ -124,48 +122,13 @@ export default function WeatherDetails() {
       {/* Map */}
       <div className="glass-card p-6">
         <h2 className="text-2xl font-bold text-slate-900">Weather Map</h2>
-        <div className="text-slate-600 mt-1">Radar overlay + marker for your selected location.</div>
+        <div className="text-slate-600 mt-1">Colored patches are rain. The pin is the place you selected.</div>
 
         <div className="mt-4">
           <Suspense fallback={<div className="h-[420px] bg-gray-200 rounded-2xl animate-pulse" />}>
             <WeatherMap location={location} />
           </Suspense>
         </div>
-      </div>
-
-      {/* Air Quality */}
-      <div className="glass-card p-6">
-        <h2 className="text-2xl font-bold text-slate-900">Air Quality</h2>
-        {!airCurrent ? (
-          <div className="text-slate-600 mt-2">No air quality data available.</div>
-        ) : (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div className="metric-card-modern p-4">
-              <div className="text-slate-500 text-sm">US AQI</div>
-              <div className="text-2xl font-bold text-slate-800">{Number.isFinite(airCurrent.us_aqi) ? Math.round(airCurrent.us_aqi) : '—'}</div>
-            </div>
-            <div className="metric-card-modern p-4">
-              <div className="text-slate-500 text-sm">EU AQI</div>
-              <div className="text-2xl font-bold text-slate-800">{Number.isFinite(airCurrent.european_aqi) ? Math.round(airCurrent.european_aqi) : '—'}</div>
-            </div>
-            <div className="metric-card-modern p-4">
-              <div className="text-slate-500 text-sm">PM2.5</div>
-              <div className="text-2xl font-bold text-slate-800">{Number.isFinite(airCurrent.pm2_5) ? airCurrent.pm2_5.toFixed(1) : '—'}</div>
-            </div>
-            <div className="metric-card-modern p-4">
-              <div className="text-slate-500 text-sm">PM10</div>
-              <div className="text-2xl font-bold text-slate-800">{Number.isFinite(airCurrent.pm10) ? airCurrent.pm10.toFixed(1) : '—'}</div>
-            </div>
-            <div className="metric-card-modern p-4">
-              <div className="text-slate-500 text-sm">CO</div>
-              <div className="text-2xl font-bold text-slate-800">{Number.isFinite(airCurrent.carbon_monoxide) ? airCurrent.carbon_monoxide.toFixed(0) : '—'}</div>
-            </div>
-            <div className="metric-card-modern p-4">
-              <div className="text-slate-500 text-sm">Ozone</div>
-              <div className="text-2xl font-bold text-slate-800">{Number.isFinite(airCurrent.ozone) ? airCurrent.ozone.toFixed(0) : '—'}</div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="text-xs text-slate-500">

@@ -267,8 +267,8 @@ class AlertService:
     # No feeder telemetry for this long → ultrasonic/feeder device offline
     # (matches the 20s "Telemetry age" threshold used on the Feeding page)
     FEEDER_STALE_SECONDS = 20
-    # Larger ultrasonic gap = less feed in the hopper (20 cm = full, 37 cm = 10%)
-    FEEDER_LOW_DISTANCE_CM = 37.0
+    # Larger ultrasonic gap = less feed in the hopper (20 cm = full, 32 cm = 10%)
+    FEEDER_LOW_DISTANCE_CM = 32.0
     # After user marks offline/disconnect as read, do not recreate until sensors recover
     _SNOOZE_UNTIL_ONLINE_PREFIX = 'alert:snooze_until_online:'
     _CREATE_LOCK_PREFIX = 'alert:creating:'
@@ -513,7 +513,7 @@ class AlertService:
     @staticmethod
     def check_feeder_level():
         """
-        When ultrasonic distance is 37 cm or more, the hopper is low (~10%).
+        When ultrasonic distance is 32 cm or more, the hopper is low (~10%).
         One open 'feeder_level' alert; emails Settings → notification email
         on first create. Fresh telemetry only (ignore stale/offline readings).
         """
@@ -525,8 +525,14 @@ class AlertService:
         now = timezone.now()
 
         feeder = Feeder.objects.first()
-        if feeder is not None and getattr(feeder, 'alerts_enabled', True) is False:
-            return created
+        if feeder is not None and (
+            feeder.alerts_enabled is not True or feeder.weather_alert is not True or feeder.low_feed_alert is not True
+        ):
+            feeder.alerts_enabled = True
+            feeder.weather_alert = True
+            feeder.low_feed_alert = True
+            feeder.missed_feed_alert = True
+            feeder.save(update_fields=['alerts_enabled', 'weather_alert', 'low_feed_alert', 'missed_feed_alert'])
 
         latest = FeederTelemetry.objects.order_by('-timestamp').first()
         if latest is None or latest.timestamp is None:

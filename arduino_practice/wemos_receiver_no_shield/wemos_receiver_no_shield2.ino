@@ -37,8 +37,9 @@
  *
  *   Signal only (no power):
  *     Servo YELLOW  → WeMos D7
- *     HC-SR04 Trig  → WeMos D3
- *     HC-SR04 Echo  → WeMos D4  (Echo is 5V: use 1k/2k divider if needed)
+ *     HC-SR04 Trig  → WeMos D3 y
+ *     HC-SR04 Echo  → WeMos D4  (Echo is 5V: use 1k/2k divider if needed) w
+ * 
  *
  * USB WHILE POWERED:
  *   OK to plug USB for Serial Monitor IF adapter GND is already common.

@@ -77,27 +77,21 @@ export default function MunicipalitySelector({ value, onChange, disabled = false
         value={value?.key || 'calapan'}
         onChange={handleChange}
         disabled={disabled || loading}
-        className={`w-full px-4 py-2 border rounded-lg appearance-none cursor-pointer font-medium
-          ${
-            disabled || loading
-              ? 'border-cyan-400/15 bg-slate-950/40 text-cyan-200/50 cursor-not-allowed'
-              : 'border-cyan-400/20 bg-slate-950/40 text-cyan-50 hover:border-cyan-300/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/40'
-          }
-        `}
+        className="municipality-select w-full px-4 py-3 rounded-xl appearance-none cursor-pointer font-semibold"
         style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23333' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E")`,
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffffff' d='M10.293 3.293L6 7.586 1.707 3.293A1 1 0 00.293 4.707l5 5a1 1 0 001.414 0l5-5a1 1 0 10-1.414-1.414z'/%3E%3C/svg%3E")`,
           backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'right 0.75rem center',
-          backgroundSize: '12px',
-          paddingRight: '2.5rem',
+          backgroundPosition: 'right 0.9rem center',
+          backgroundSize: '14px',
+          paddingRight: '2.75rem',
         }}
       >
         {/* PRIMARY (Calapan City - Featured) */}
         {groupedMunicipalities.primary.length > 0 && (
-          <optgroup label="⭐ PRIMARY - HIGH ACCURACY">
+          <optgroup label="PRIMARY">
             {groupedMunicipalities.primary.map((m) => (
               <option key={m.key} value={m.key}>
-                {m.display_name} (95%+ accuracy)
+                {m.display_name}
               </option>
             ))}
           </optgroup>
@@ -136,11 +130,6 @@ export default function MunicipalitySelector({ value, onChange, disabled = false
               ⭐ PRIMARY
             </span>
           )}
-          {value.model_available && (
-            <span className="px-2 py-1 bg-emerald-500/20 text-emerald-200 text-xs font-bold rounded whitespace-nowrap">
-              ✓ ML Ready
-            </span>
-          )}
           {value.is_coastal && !value.is_primary && (
             <span className="px-2 py-1 bg-sky-500/20 text-sky-200 text-xs font-bold rounded whitespace-nowrap">
               🌊 Coastal
@@ -153,7 +142,7 @@ export default function MunicipalitySelector({ value, onChange, disabled = false
 
       {/* Info text */}
       <p className="text-xs text-gray-500 mt-1">
-        {municipalities.length} municipalities • Calapan City is featured for highest accuracy
+        {municipalities.length} municipalities • readings follow the place you select
       </p>
     </div>
   );

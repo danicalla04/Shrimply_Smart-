@@ -153,6 +153,18 @@ export async function updateStockingDensity(seasonId, stockingDensity) {
     return data || {}
 }
 
+export async function updateSeason(seasonId, fields) {
+    const res = await authService.apiCall(`${API_BASE}/seasons/${seasonId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(fields),
+    })
+    const { data, text } = await parseJsonSafe(res)
+    if (!res.ok) {
+        throw new Error(data?.error || data?.detail || text || 'Failed to update season')
+    }
+    return data || {}
+}
+
 export async function updateSeasonNotes(seasonId, notes) {
     const res = await authService.apiCall(`${API_BASE}/seasons/${seasonId}/`, {
         method: 'PATCH',

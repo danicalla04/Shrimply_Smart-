@@ -135,6 +135,24 @@
     color: #fff !important;
 }
 
+.history-overview .history-day-input {
+    width: 3.2rem;
+    padding: 0 0.2rem;
+    border: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 0;
+    background: transparent !important;
+    color: #fff !important;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.history-overview .history-day-input:focus {
+    outline: none;
+    border-bottom-color: #7dd3fc;
+}
+
 .history-overview button {
     color: #fff !important;
 }

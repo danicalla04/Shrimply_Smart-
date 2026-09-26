@@ -34,7 +34,7 @@ export const DEFAULT_FEEDER_STATE = {
   alertsEnabled: true,
   missedFeedAlert: true,
   lowFeedAlert: true,
-  weatherAlert: false,
+  weatherAlert: true,
 
   // Computed fields
   nextFeedTime: null,
@@ -144,6 +144,19 @@ export async function toggleAutoFeeding(enabled) {
   }
 }
 
+export async function logDummyFeed(portionGrams, seconds) {
+  const response = await authService.apiCall(`${API_BASE}/feeder/dummy_feed/`, {
+    method: 'POST',
+    body: JSON.stringify({ portion_grams: portionGrams, seconds }),
+  })
+  if (response && typeof response.json === 'function') {
+    const data = await response.json()
+    if (!response.ok) throw new Error(data?.error || 'Could not save feeding history')
+    return normalizeFeederData(data)
+  }
+  return normalizeFeederData(response?.data || {})
+}
+
 export async function feedOnce() {
   try {
     const response = await authService.apiCall(`${API_BASE}/feeder/feed_once/`, {
@@ -204,9 +217,13 @@ export async function fetchFeedingHistory(limit = 50) {
     const response = await authService.apiCall(`${API_BASE}/feeder/feeding_history/?limit=${limit}`)
     if (response && typeof response.json === 'function') {
       const data = await response.json()
-      return data.logs || []
+      const logs = data.logs || []
+      logs.total = Number.isFinite(data.total) ? data.total : logs.length
+      return logs
     }
-    return response?.data?.logs || []
+    const logs = response?.data?.logs || []
+    logs.total = Number.isFinite(response?.data?.total) ? response.data.total : logs.length
+    return logs
   } catch (error) {
     console.error('Failed to fetch feeding history:', error)
     return []
@@ -263,7 +280,7 @@ function normalizeFeederData(data) {
     alertsEnabled: data.alerts_enabled !== false,
     missedFeedAlert: data.missed_feed_alert !== false,
     lowFeedAlert: data.low_feed_alert !== false,
-    weatherAlert: data.weather_alert || false,
+    weatherAlert: data.weather_alert !== false,
 
     // Computed fields
     nextFeedTime: data.next_feed_time,
@@ -279,9 +296,9 @@ export function capacityPercent(state) {
   return Math.max(0, Math.min(100, Math.round((current / max) * 100)));
 }
 
-/** Ultrasonic hopper map: 20 cm = full, 37 cm = 10% (low-feed alert). */
+/** Ultrasonic hopper map: 20 cm = full, 32 cm = 10% (low-feed alert). */
 export const HOPPER_FULL_CM = 20
-export const HOPPER_TEN_PERCENT_CM = 37
+export const HOPPER_TEN_PERCENT_CM = 32
 export const FEEDER_TELEMETRY_STALE_MS = 20_000
 
 export function hopperPercentFromDistance(distanceCm) {

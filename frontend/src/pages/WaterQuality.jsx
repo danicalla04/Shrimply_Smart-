@@ -31,16 +31,30 @@ function hasChartValue(row) {
   return [row.temperature, row.ph, row.turbidity, row.tds].some((v) => v != null && v !== '')
 }
 
+const TEN_MIN_MS = 10 * 60 * 1000
+
 function rowsFromDatabase(packetRows, hours) {
   const all = [...(packetRows || [])]
     .filter((row) => row?.timestamp && hasChartValue(row))
     .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-  if (hours == null) return all
-  const cutoff = Date.now() - hours * 3600 * 1000
-  return all.filter((row) => {
+  const windowed = hours == null ? all : all.filter((row) => {
     const t = new Date(row.timestamp).getTime()
-    return Number.isFinite(t) && t >= cutoff
+    return Number.isFinite(t) && t >= Date.now() - hours * 3600 * 1000
   })
+  // One stored snapshot per 10 minutes. The 5-second live update stays on the newest row only.
+  const kept = []
+  let bucket = null
+  for (const row of windowed) {
+    const t = new Date(row.timestamp).getTime()
+    const nextBucket = Math.floor(t / TEN_MIN_MS)
+    if (nextBucket !== bucket) {
+      kept.push(row)
+      bucket = nextBucket
+    } else {
+      kept[kept.length - 1] = row
+    }
+  }
+  return kept
 }
 
 function formatChartLabel(iso, rangeId) {
@@ -61,7 +75,11 @@ function formatChartLabel(iso, rangeId) {
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { display: false } },
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { display: false },
+    tooltip: { enabled: true, mode: 'index', intersect: false },
+  },
   scales: {
     x: { grid: { color: 'rgba(103,232,249,0.08)' }, ticks: { color: '#8fb8cc', maxRotation: 0, autoSkip: true, maxTicksLimit: 8 } },
     y: { grid: { color: 'rgba(103,232,249,0.08)' }, ticks: { color: '#8fb8cc' } },
@@ -77,8 +95,13 @@ function series(color) {
       backgroundColor: color.replace('1)', '0.16)'),
       fill: true,
       tension: 0.25,
-      pointRadius: 3,
-      pointHoverRadius: 5,
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 6,
+      pointHitRadius: 16,
+      pointHoverBackgroundColor: color,
+      pointHoverBorderColor: '#ffffff',
+      pointHoverBorderWidth: 2,
       spanGaps: true,
     }],
   }

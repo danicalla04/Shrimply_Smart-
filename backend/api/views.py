@@ -119,11 +119,20 @@ def _create_and_broadcast_alert(
     return alert
 
 
+def _lock_feeder_alerts_on(feeder):
+    """Feeding alerts stay on. The Feeding page no longer offers a way to turn them off."""
+    fields = ('alerts_enabled', 'missed_feed_alert', 'low_feed_alert', 'weather_alert')
+    changed = [field for field in fields if getattr(feeder, field, True) is not True]
+    if not changed:
+        return feeder
+    for field in changed:
+        setattr(feeder, field, True)
+    feeder.save(update_fields=changed)
+    return feeder
+
+
 def _maybe_alert_feeder_capacity_low(feeder: Feeder):
-    if not getattr(feeder, 'alerts_enabled', True):
-        return None
-    if not getattr(feeder, 'low_feed_alert', True):
-        return None
+    _lock_feeder_alerts_on(feeder)
 
     cap_max = float(getattr(feeder, 'capacity_max', 0) or 0)
     cap_cur = float(getattr(feeder, 'capacity_current', 0) or 0)
@@ -1044,6 +1053,11 @@ class FeederViewSet(viewsets.ModelViewSet):
             Feeder.objects.create()
         return self.queryset
 
+    def list(self, request, *args, **kwargs):
+        for feeder in self.get_queryset():
+            _lock_feeder_alerts_on(feeder)
+        return super().list(request, *args, **kwargs)
+
     @action(detail=False, methods=['post'])
     def feed_once(self, request):
         """Manually trigger a feeding"""
@@ -1085,6 +1099,40 @@ class FeederViewSet(viewsets.ModelViewSet):
             # Schedule servo ON now and OFF after computed duration (30s=570g).
             enqueue_servo_job(target_grams=portion, on_at=timezone.now(), device_id="wemos-poller")
 
+            serializer = self.get_serializer(feeder)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response({'error': str(e)}, status=500)
+
+    @action(detail=False, methods=['post'])
+    def dummy_feed(self, request):
+        """Dummy servo button. 30 seconds on equals 1 kg. Does not move hardware."""
+        try:
+            feeder = self.queryset.first()
+            if not feeder:
+                feeder = Feeder.objects.create()
+
+            grams = float(request.data.get('portion_grams') or 0)
+            grams = max(0.0, min(100000.0, grams))
+            if grams <= 0:
+                return Response({'error': 'No feed dispensed'}, status=400)
+
+            portion = int(round(grams))
+            seconds = float(request.data.get('seconds') or 0)
+            capacity_before = int(feeder.capacity_current or 0)
+            capacity_after = max(0, capacity_before - portion)
+            feeder.capacity_current = capacity_after
+            feeder.last_fed_at = timezone.now()
+            feeder.save()
+            _maybe_alert_feeder_capacity_low(feeder)
+            FeedingLog.objects.create(
+                feeder=feeder,
+                feed_type='manual',
+                portion_grams=portion,
+                capacity_before=capacity_before,
+                capacity_after=capacity_after,
+                notes=f'Servo feed: {portion}g in {seconds:.0f}s',
+            )
             serializer = self.get_serializer(feeder)
             return Response(serializer.data)
         except Exception as e:
@@ -1140,8 +1188,7 @@ class FeederViewSet(viewsets.ModelViewSet):
             for field in ['interval_minutes', 'portion_grams', 'capacity_max', 'low_percent',
                          'schedule_type', 'daily_schedule', 'today_feed_plan', 'weather_adaptation',
                          'rain_reduction_percent', 'heat_increase_percent', 'extreme_weather_pause',
-                         'smart_optimization', 'behavior_adjustment', 'water_quality_adjustment',
-                         'alerts_enabled', 'missed_feed_alert', 'low_feed_alert', 'weather_alert']:
+                         'smart_optimization', 'behavior_adjustment', 'water_quality_adjustment']:
                 if field in request.data:
                     value = request.data[field]
                     if field in ['interval_minutes', 'portion_grams', 'capacity_max', 'low_percent',
@@ -1157,6 +1204,11 @@ class FeederViewSet(viewsets.ModelViewSet):
                         import json
                         value = json.loads(value)
                     setattr(feeder, field, value)
+
+            feeder.alerts_enabled = True
+            feeder.missed_feed_alert = True
+            feeder.low_feed_alert = True
+            feeder.weather_alert = True
 
             if feeder.auto_enabled and not feeder.next_feed_at:
                 feeder.next_feed_at = feeder.get_next_feed_time()
@@ -1222,7 +1274,7 @@ class FeederViewSet(viewsets.ModelViewSet):
             limit = int(request.GET.get('limit', 50))
             logs = feeder.feeding_logs.all()[:limit]
             serializer = FeedingLogSerializer(logs, many=True)
-            return Response({'logs': serializer.data})
+            return Response({'logs': serializer.data, 'total': feeder.feeding_logs.count()})
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 

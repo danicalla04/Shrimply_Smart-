@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import * as seasonApi from '../services/seasonBackend'
-import { fetchHistorySettings } from '../services/historySettings'
+import { fetchHistorySettings, updateHistorySettings } from '../services/historySettings'
 import { sendHarvestReminder, isReminderSent, markReminderSent } from '../services/notifications'
 import SeasonSensorAverages from '../components/SeasonSensorAverages'
 import PageLoader from '../components/PageLoader'
@@ -54,6 +54,8 @@ const HistoryOverview = () => {
     const [toast, setToast] = useState(null)
     const [actionLoading, setActionLoading] = useState(false)
 
+    const [dayDraft, setDayDraft] = useState('')
+    const [cycleDraft, setCycleDraft] = useState('')
     const [sensorAvgs, setSensorAvgs] = useState(null)
     const [expandedSeasonId, setExpandedSeasonId] = useState(null)
     const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null)
@@ -120,6 +122,12 @@ const HistoryOverview = () => {
         }
     }, [activeSeason, harvestDays])
 
+    useEffect(() => {
+        if (!expected) return
+        setDayDraft(String(expected.dayNumber))
+        setCycleDraft(String(expected.totalDays))
+    }, [expected])
+
 
 
 
@@ -145,6 +153,58 @@ const HistoryOverview = () => {
     }, [activeSeason, expected, settings])
 
     // ── actions ────────────────────────────────────────────────────
+    const localISODate = (date) => {
+        const y = date.getFullYear()
+        const m = String(date.getMonth() + 1).padStart(2, '0')
+        const d = String(date.getDate()).padStart(2, '0')
+        return `${y}-${m}-${d}`
+    }
+
+    const saveCultureDay = async () => {
+        if (!activeSeason || !expected) return
+        const day = parseInt(dayDraft, 10)
+        if (!Number.isFinite(day) || day < 1 || day > 365) {
+            setDayDraft(String(expected.dayNumber))
+            return flash('Culture day must be between 1 and 365', 'error')
+        }
+        if (day === expected.dayNumber) return
+        const start = new Date()
+        start.setHours(12, 0, 0, 0)
+        start.setDate(start.getDate() - (day - 1))
+        setActionLoading(true)
+        try {
+            await seasonApi.updateSeason(activeSeason.id, { start_date: localISODate(start) })
+            flash(`Culture day set to ${day}`)
+            await loadAll()
+        } catch (e) {
+            setDayDraft(String(expected.dayNumber))
+            flash(e.message || 'Could not update culture day', 'error')
+        } finally {
+            setActionLoading(false)
+        }
+    }
+
+    const saveCycleDays = async () => {
+        if (!expected) return
+        const days = parseInt(cycleDraft, 10)
+        if (!Number.isFinite(days) || days < 1 || days > 365) {
+            setCycleDraft(String(expected.totalDays))
+            return flash('Cycle length must be between 1 and 365 days', 'error')
+        }
+        if (days === expected.totalDays) return
+        setActionLoading(true)
+        try {
+            const saved = await updateHistorySettings({ harvest_lead_days: days })
+            setSettings((prev) => ({ ...prev, ...saved, harvest_lead_days: days }))
+            flash(`Cycle length set to ${days} days`)
+        } catch (e) {
+            setCycleDraft(String(expected.totalDays))
+            flash(e.message || 'Could not update cycle length', 'error')
+        } finally {
+            setActionLoading(false)
+        }
+    }
+
     const addHarvest = async (isAll = false) => {
         if (!dateISO) return flash('Please select a date', 'error')
         if (!activeSeason) return flash('No active season', 'error')
@@ -379,8 +439,33 @@ const HistoryOverview = () => {
                         {expected && (
                             <div className="mt-1">
                                 Expected Harvest: <span className="font-semibold">{expected.date.toLocaleDateString()}</span>
-                                <span className="history-day-badge ml-3 inline-block px-2 py-1 rounded bg-slate-700 text-white text-xs">
-                                    Day {expected.dayNumber}/{expected.totalDays}
+                                <span className="history-day-badge ml-3 inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-700 text-white text-xs">
+                                    Day
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="365"
+                                        value={dayDraft}
+                                        disabled={actionLoading}
+                                        aria-label="Current culture day"
+                                        className="history-day-input"
+                                        onChange={(e) => setDayDraft(e.target.value)}
+                                        onBlur={saveCultureDay}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                    />
+                                    /
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="365"
+                                        value={cycleDraft}
+                                        disabled={actionLoading}
+                                        aria-label="Cycle length in days"
+                                        className="history-day-input"
+                                        onChange={(e) => setCycleDraft(e.target.value)}
+                                        onBlur={saveCycleDays}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                    />
                                 </span>
                                 {expected.daysLeft > 0 ? (
                                     <span className="ml-2 px-2 py-1 rounded bg-amber-600/30 text-amber-800">{expected.daysLeft} days left</span>

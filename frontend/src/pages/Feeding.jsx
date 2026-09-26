@@ -9,6 +9,7 @@ import {
   updateFeederSettings,
   toggleAutoFeeding,
   feedOnce,
+  logDummyFeed,
   refillFeeder,
   processAutoFeedTick,
   fetchFeedingHistory,
@@ -22,15 +23,20 @@ import { alertWebSocket } from '../services/alertWebSocket';
 function Toggle({ checked, onChange, label }) {
   return (
     <button
+      type="button"
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${checked ? 'bg-gradient-to-r from-blue-500 to-blue-600' : 'bg-gray-300'
-        }`}
+      className="relative inline-flex h-9 w-16 shrink-0 items-center rounded-full transition-all focus:outline-none"
+      style={{
+        background: checked ? '#22c55e' : '#475569',
+        boxShadow: checked
+          ? '0 0 0 3px rgba(34,197,94,0.45), 0 0 16px rgba(34,197,94,0.85)'
+          : 'inset 0 0 0 1px rgba(255,255,255,0.28)',
+      }}
       aria-pressed={checked}
       aria-label={label}
     >
       <span
-        className={`inline-block h-6 w-6 transform rounded-full bg-white shadow-lg transition-transform ${checked ? 'translate-x-7' : 'translate-x-1'
-          }`}
+        className={`inline-block h-7 w-7 transform rounded-full bg-white shadow-lg transition-transform ${checked ? 'translate-x-8' : 'translate-x-1'}`}
       />
     </button>
   );
@@ -64,6 +70,7 @@ export default function Feeding() {
   const [state, setState] = useState(() => DEFAULT_FEEDER_STATE);
   const [now, setNow] = useState(Date.now());
   const [feedingHistory, setFeedingHistory] = useState([]);
+  const [feedTotal, setFeedTotal] = useState(0);
   const [activeTab, setActiveTab] = useState('controls');
   const [newDailyTime, setNewDailyTime] = useState('08:00');
   const [servoState, setServoState] = useState('OFF');
@@ -71,6 +78,14 @@ export default function Feeding() {
   const [wemosOnline, setWemosOnline] = useState(false);
   const [lastTelemetryTimestamp, setLastTelemetryTimestamp] = useState(null);
   const [servoLoading, setServoLoading] = useState(false);
+  const [servoElapsed, setServoElapsed] = useState(0);
+  const dummyServoStartedAt = useRef(null);
+  const dummyServoTimer = useRef(null);
+  const applyFeedingHistory = (history) => {
+    const logs = Array.isArray(history) ? history : [];
+    setFeedingHistory(logs);
+    setFeedTotal(Number.isFinite(logs.total) ? logs.total : logs.length);
+  };
   const [servoScheduleOpenTime, setServoScheduleOpenTime] = useState('08:00');
   const [servoScheduleCloseTime, setServoScheduleCloseTime] = useState('18:00');
   const [servoScheduleEnabled, setServoScheduleEnabled] = useState(false);
@@ -115,58 +130,67 @@ export default function Feeding() {
     setSlotEditor({ oldTime: timeStr, time: timeStr, kg });
   };
 
-  const saveSlotEditor = async () => {
-    if (!slotEditor) return;
-    const newTime = String(slotEditor.time || '').trim().slice(0, 5);
+  const applyDailyTimeChange = async (oldTime, newTimeRaw, kgOverride) => {
+    const newTime = String(newTimeRaw || '').trim().slice(0, 5);
     if (!/^\d{2}:\d{2}$/.test(newTime)) {
       flash('Enter a valid time (HH:MM)', 'error');
-      return;
+      return false;
     }
-    const kgNum = slotEditor.kg === '' || slotEditor.kg == null ? null : Number(slotEditor.kg);
+    if (newTime === oldTime && kgOverride === undefined) return true;
+
+    const kgNum = kgOverride === undefined || kgOverride === '' || kgOverride == null
+      ? null
+      : Number(kgOverride);
     if (kgNum != null && (Number.isNaN(kgNum) || kgNum < 0)) {
       flash('Enter a valid feed amount (kg)', 'error');
-      return;
+      return false;
     }
 
+    let schedule = [...(state.dailySchedule || [])];
+    if (!schedule.length && todayPlan?.slots_kg) {
+      schedule = Object.keys(todayPlan.slots_kg);
+    }
+    const idx = schedule.indexOf(oldTime);
+    if (idx >= 0) schedule[idx] = newTime;
+    else if (!schedule.includes(newTime)) schedule.push(newTime);
+    schedule = [...new Set(schedule.filter(Boolean))].sort();
+
+    let plan = todayPlan ? { ...todayPlan } : (state.todayFeedPlan ? { ...state.todayFeedPlan } : null);
+    if (plan) {
+      const slots = { ...(plan.slots_kg || {}) };
+      const oldKg = slots[oldTime];
+      if (oldTime !== newTime) delete slots[oldTime];
+      if (kgNum != null) slots[newTime] = Math.round(kgNum * 100) / 100;
+      else if (oldKg != null) slots[newTime] = oldKg;
+      else if (slots[newTime] == null) slots[newTime] = 0;
+      const total = Object.values(slots).reduce((s, v) => s + (Number(v) || 0), 0);
+      plan = {
+        ...plan,
+        date: plan.date || todayISO(),
+        slots_kg: slots,
+        times: Object.keys(slots).sort(),
+        total_kg: Math.round(total * 100) / 100,
+      };
+    }
+
+    const updatedState = await updateFeederSettings({
+      schedule_type: 'daily',
+      daily_schedule: schedule,
+      ...(plan ? { today_feed_plan: plan } : {}),
+    });
+    setState(updatedState);
+    if (plan) {
+      setTodayPlan(plan);
+      setMlRec((prev) => prev ? { ...prev, slots_kg: plan.slots_kg, total_kg: plan.total_kg } : prev);
+    }
+    flash('Feeding time updated', 'success');
+  };
+
+  const saveSlotEditor = async () => {
+    if (!slotEditor) return;
     try {
-      const oldTime = slotEditor.oldTime;
-      let schedule = [...(state.dailySchedule || [])];
-      const idx = schedule.indexOf(oldTime);
-      if (idx >= 0) schedule[idx] = newTime;
-      else if (!schedule.includes(newTime)) schedule.push(newTime);
-      // dedupe + sort
-      schedule = [...new Set(schedule.filter(Boolean))].sort();
-
-      let plan = todayPlan ? { ...todayPlan } : (state.todayFeedPlan ? { ...state.todayFeedPlan } : null);
-      if (plan) {
-        const slots = { ...(plan.slots_kg || {}) };
-        const oldKg = slots[oldTime];
-        if (oldTime !== newTime) delete slots[oldTime];
-        if (kgNum != null) slots[newTime] = Math.round(kgNum * 100) / 100;
-        else if (oldKg != null) slots[newTime] = oldKg;
-        else if (slots[newTime] == null) slots[newTime] = 0;
-        const total = Object.values(slots).reduce((s, v) => s + (Number(v) || 0), 0);
-        plan = {
-          ...plan,
-          date: plan.date || todayISO(),
-          slots_kg: slots,
-          times: Object.keys(slots).sort(),
-          total_kg: Math.round(total * 100) / 100,
-        };
-      }
-
-      const updatedState = await updateFeederSettings({
-        schedule_type: 'daily',
-        daily_schedule: schedule,
-        ...(plan ? { today_feed_plan: plan } : {}),
-      });
-      setState(updatedState);
-      if (plan) {
-        setTodayPlan(plan);
-        setMlRec((prev) => prev ? { ...prev, slots_kg: plan.slots_kg, total_kg: plan.total_kg } : prev);
-      }
-      setSlotEditor(null);
-      flash('Feeding time updated', 'success');
+      const ok = await applyDailyTimeChange(slotEditor.oldTime, slotEditor.time, slotEditor.kg);
+      if (ok !== false) setSlotEditor(null);
     } catch (e) {
       console.error(e);
       flash(e.message || 'Failed to update time', 'error');
@@ -333,7 +357,7 @@ export default function Feeding() {
         fetchFeedingHistory(20),
       ]);
       setState(feederState);
-      setFeedingHistory(history);
+      applyFeedingHistory(history);
       flash("Saved as today's feed plan", 'success');
       return plan;
     } catch (e) {
@@ -348,6 +372,51 @@ export default function Feeding() {
   // Turning Auto Feeding on should immediately pull the freshest ML
   // recommendation and push it into the daily schedule, instead of leaving
   // whatever schedule (or none) was there before.
+  const finishDummyServo = async () => {
+    const started = dummyServoStartedAt.current;
+    if (!started) {
+      setServoState('OFF');
+      return;
+    }
+    dummyServoStartedAt.current = null;
+    if (dummyServoTimer.current) {
+      clearInterval(dummyServoTimer.current);
+      dummyServoTimer.current = null;
+    }
+    const seconds = (Date.now() - started) / 1000;
+    const grams = Math.round((seconds / 30) * 1000);
+    setServoState('OFF');
+    setServoElapsed(0);
+    if (grams <= 0) return;
+    try {
+      await logDummyFeed(grams, seconds);
+      const history = await fetchFeedingHistory(20);
+      applyFeedingHistory(history);
+      flash(`Saved ${(grams / 1000).toFixed(2)} kg to feeding history`, 'success');
+    } catch (error) {
+      console.error('Feed history save failed:', error);
+      flash(error.message || 'Could not save feeding history', 'error');
+    }
+  };
+
+  useEffect(() => () => {
+    if (dummyServoTimer.current) clearInterval(dummyServoTimer.current);
+  }, []);
+
+  const startDummyServo = () => {
+    if (dummyServoStartedAt.current) return;
+    dummyServoStartedAt.current = Date.now();
+    setServoState('ON');
+    setServoElapsed(0);
+    dummyServoTimer.current = setInterval(() => {
+      const startedAt = dummyServoStartedAt.current;
+      if (!startedAt) return;
+      const seconds = (Date.now() - startedAt) / 1000;
+      setServoState('ON');
+      setServoElapsed(seconds);
+    }, 250);
+  };
+
   const enableAutoFeedingWithMlPlan = async () => {
     setMlLoading(true);
     setMlError(null);
@@ -400,7 +469,7 @@ export default function Feeding() {
           fetchFeedingHistory(20)
         ]);
         setState(feederState);
-        setFeedingHistory(history);
+        applyFeedingHistory(history);
         const plan = feederState.todayFeedPlan;
         if (plan?.date === todayISO()) {
           setTodayPlan(plan);
@@ -431,7 +500,7 @@ export default function Feeding() {
     (async () => {
       try {
         const servo = await wemosApi.getServoState().catch(() => null);
-        if (servo) setServoState(servo);
+        if (servo && !dummyServoStartedAt.current) setServoState(servo);
       } catch {
         // ignore
       }
@@ -459,7 +528,7 @@ export default function Feeding() {
             }
 
             const motor = (data.motor_state ?? data.motorState ?? data.servo_state ?? data.servoState);
-            if (motor !== undefined && motor !== null && String(motor).trim() !== '') {
+            if (!dummyServoStartedAt.current && motor !== undefined && motor !== null && String(motor).trim() !== '') {
               const normalized = String(motor).trim().toUpperCase();
               setServoState(normalized === 'ON' ? 'ON' : 'OFF');
             }
@@ -545,7 +614,7 @@ export default function Feeding() {
           // Keep last distance if this row is a servo click with no new reading
         }
       }
-      if (!wemosOnline) {
+      if (!wemosOnline && !dummyServoStartedAt.current) {
         const servo = await wemosApi.getServoState().catch(() => null);
         if (servo) setServoState(servo);
       }
@@ -571,7 +640,7 @@ export default function Feeding() {
         // Refresh history every other tick (~60 seconds)
         if (now % 60000 < 30000) {
           const history = await fetchFeedingHistory(20);
-          setFeedingHistory(history);
+          applyFeedingHistory(history);
         }
       }
     } catch (error) {
@@ -661,6 +730,8 @@ export default function Feeding() {
     prevUltrasonicLow.current = ultrasonicLow;
   }, [ultrasonicLow, ultrasonicCm, state.alertsEnabled, state.alerts_enabled, state.lowFeedAlert, state.low_feed_alert]);
 
+  const autoFeedingOn = state.autoEnabled === true || state.auto_enabled === true;
+
   return (
     <div className="p-8">
       <div className="mb-8">
@@ -693,7 +764,7 @@ export default function Feeding() {
               <span className="text-2xl">📈</span>
             </div>
             <div className="text-right">
-              <div className="text-3xl font-bold text-slate-800">{feedingHistory.length}</div>
+              <div className="text-3xl font-bold text-slate-800">{feedTotal}</div>
               <div className="text-sm text-slate-500">{t('totalFeeds')}</div>
             </div>
           </div>
@@ -704,7 +775,7 @@ export default function Feeding() {
         </div>
       </div>
 
-      {todayPlan?.date === todayISO() && (
+      {autoFeedingOn && todayPlan?.date === todayISO() && (
         <div className="card mb-6">
           <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
             <div>
@@ -798,22 +869,30 @@ export default function Feeding() {
               <div className="space-y-4 relative z-10">
                 <div className="flex items-center justify-between p-4 rounded-xl bg-white/60 backdrop-blur-sm border border-slate-200">
                   <span className="text-base font-semibold text-slate-800">{t('autoFeeding')}</span>
-                  <Toggle
-                    checked={state.autoEnabled !== false && state.auto_enabled !== false}
-                    onChange={async (value) => {
-                      try {
-                        const updatedState = await toggleAutoFeeding(value);
-                        setState(updatedState);
-                        if (value) {
-                          flash("Auto feeding on — applying today's ML recommendation…", 'success');
-                          await enableAutoFeedingWithMlPlan();
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="text-sm font-bold tracking-wide"
+                      style={{ color: (state.autoEnabled !== false && state.auto_enabled !== false) ? '#4ade80' : '#94a3b8' }}
+                    >
+                      {(state.autoEnabled !== false && state.auto_enabled !== false) ? 'ON' : 'OFF'}
+                    </span>
+                    <Toggle
+                      checked={state.autoEnabled !== false && state.auto_enabled !== false}
+                      onChange={async (value) => {
+                        try {
+                          const updatedState = await toggleAutoFeeding(value);
+                          setState(updatedState);
+                          if (value) {
+                            flash("Auto feeding on — applying today's ML recommendation…", 'success');
+                            await enableAutoFeedingWithMlPlan();
+                          }
+                        } catch (error) {
+                          console.error('Failed to toggle auto feeding:', error);
                         }
-                      } catch (error) {
-                        console.error('Failed to toggle auto feeding:', error);
-                      }
-                    }}
-                    label="Auto Feeding Toggle"
-                  />
+                      }}
+                      label="Auto Feeding Toggle"
+                    />
+                  </div>
                 </div>
                 {(state.autoEnabled !== false && state.auto_enabled !== false) && (
                   <div className="p-4 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl shadow-md text-white">
@@ -865,9 +944,9 @@ export default function Feeding() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-slate-700">Ultrasonic Distance:</span>
                     <span className="text-lg font-bold text-slate-800">
-                      {!deviceConnected || ultrasonicDistance === 'NA'
+                      {!deviceConnected || ultrasonicDistance === 'NA' || capPct == null
                         ? 'Sensor disconnected'
-                        : `📏 ${ultrasonicDistance} cm${capPct != null ? ` (${capPct}%)` : ''}`}
+                        : `${capPct}%`}
                     </span>
                   </div>
                 </div>
@@ -875,25 +954,17 @@ export default function Feeding() {
                 {/* Servo Control Buttons */}
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    className="relative overflow-hidden rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-white font-semibold py-3 px-4 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                    onClick={async () => {
-                      if (servoLoading) return;
-                      try {
-                        setServoLoading(true);
-                        await wemosApi.servoOff();
-                        setServoState('OFF');
-                      } catch (error) {
-                        console.error('Failed to turn servo OFF:', error);
-                      } finally {
-                        setServoLoading(false);
-                      }
+                    className="relative overflow-hidden rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-white font-semibold py-3 px-4 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none flex items-center justify-center"
+                    onClick={() => {
+                      if (servoState !== 'ON') return;
+                      finishDummyServo();
                     }}
-                    disabled={servoLoading}
+                    disabled={servoLoading || servoState !== 'ON'}
                   >
-                    {servoLoading ? (
+                    {servoLoading && servoState === 'ON' ? (
                       <>
                         <span className="mr-2 animate-spin">⚙️</span>
-                        <span>Loading...</span>
+                        <span>Closing...</span>
                       </>
                     ) : (
                       <>
@@ -903,25 +974,17 @@ export default function Feeding() {
                     )}
                   </button>
                   <button
-                    className="relative overflow-hidden rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold py-3 px-4 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                    onClick={async () => {
-                      if (servoLoading) return;
-                      try {
-                        setServoLoading(true);
-                        await wemosApi.servoOn();
-                        setServoState('ON');
-                      } catch (error) {
-                        console.error('Failed to turn servo ON:', error);
-                      } finally {
-                        setServoLoading(false);
-                      }
+                    className="relative overflow-hidden rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold py-3 px-4 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none flex items-center justify-center"
+                    onClick={() => {
+                      if (servoState === 'ON') return;
+                      startDummyServo();
                     }}
-                    disabled={servoLoading}
+                    disabled={servoLoading || servoState === 'ON'}
                   >
-                    {servoLoading ? (
+                    {servoLoading && servoState !== 'ON' ? (
                       <>
                         <span className="mr-2 animate-spin">⚙️</span>
-                        <span>Loading...</span>
+                        <span>Opening...</span>
                       </>
                     ) : (
                       <>
@@ -941,6 +1004,11 @@ export default function Feeding() {
                       {servoState}
                     </span>
                   </div>
+                  {servoState === 'ON' && (
+                    <div className="mt-2 text-xs font-semibold text-slate-700">
+                      {servoElapsed.toFixed(0)}s · {(servoElapsed / 30).toFixed(2)} kg
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1041,6 +1109,33 @@ export default function Feeding() {
                       />
                     </div>
 
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={newDailyTime}
+                        onChange={(e) => setNewDailyTime(e.target.value)}
+                        className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                      />
+                      <button
+                        onClick={async () => {
+                          try {
+                            const currentTimes = (state.dailySchedule || []).filter(ti => ti && ti.trim());
+                            const next = newDailyTime;
+                            if (!next || !next.trim()) return;
+                            if (currentTimes.includes(next)) return;
+                            const newSchedule = [...currentTimes, next].sort();
+                            const updatedState = await updateFeederSettings({ daily_schedule: newSchedule });
+                            setState(updatedState);
+                          } catch (error) {
+                            console.error('Failed to add time:', error);
+                          }
+                        }}
+                        className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
+                      >
+                        Add
+                      </button>
+                    </div>
+
                     <div className="text-sm font-bold text-slate-700">Daily Times</div>
                     <p className="text-xs text-slate-500">Click a time to see kg and adjust the clock.</p>
                     <div className="space-y-2">
@@ -1091,33 +1186,6 @@ export default function Feeding() {
                         })
                       )}
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="time"
-                        value={newDailyTime}
-                        onChange={(e) => setNewDailyTime(e.target.value)}
-                        className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-                      />
-                      <button
-                        onClick={async () => {
-                          try {
-                            const currentTimes = (state.dailySchedule || []).filter(ti => ti && ti.trim());
-                            const next = newDailyTime;
-                            if (!next || !next.trim()) return;
-                            if (currentTimes.includes(next)) return;
-                            const newSchedule = [...currentTimes, next].sort();
-                            const updatedState = await updateFeederSettings({ daily_schedule: newSchedule });
-                            setState(updatedState);
-                          } catch (error) {
-                            console.error('Failed to add time:', error);
-                          }
-                        }}
-                        className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
-                      >
-                        Add
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
@@ -1152,7 +1220,7 @@ export default function Feeding() {
                   </button>
                 )}
               </div>
-              {todayPlan?.date === todayISO() && (
+              {autoFeedingOn && todayPlan?.date === todayISO() && (
                 <div className="mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-sm text-blue-900">
                   <strong>Today&apos;s feed plan is active</strong>
                   {' '}({todayPlan.total_kg} kg · DOC {todayPlan.doc} · daily schedule saved).
@@ -1226,7 +1294,7 @@ export default function Feeding() {
         )}
 
         {activeTab === 'settings' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-6">
             {/* Basic Settings */}
             <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-white via-indigo-50 to-purple-50 p-6 shadow-lg border border-indigo-100">
               <div className="absolute top-0 left-0 w-32 h-32 bg-gradient-to-br from-indigo-200/20 to-transparent rounded-full -ml-16 -mt-16"></div>
@@ -1257,42 +1325,35 @@ export default function Feeding() {
                     Used for manual / interval feeding — the ML daily schedule sets its own kg per slot.
                   </p>
                 </div>
-              </div>
-            </div>
-
-            {/* Alert Settings */}
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-white via-red-50 to-orange-50 p-6 shadow-lg border border-red-100">
-              <div className="absolute bottom-0 right-0 w-40 h-40 bg-gradient-to-tl from-red-200/20 to-transparent rounded-full -mr-20 -mb-20"></div>
-              <h3 className="text-xl font-bold text-slate-800 mb-5 flex items-center relative z-10">
-                <span className="mr-2 text-2xl">🔔</span>
-                {t('alertSettings')}
-              </h3>
-              <div className="space-y-3 relative z-10">
-                {[
-                  { key: 'alertsEnabled', label: t('enableAlerts'), field: 'alerts_enabled', icon: '✅' },
-                  { key: 'weatherAlert', label: t('weatherChangeAlerts'), field: 'weather_alert', icon: '☁️' }
-                ].map(alert => (
-                  <label
-                    key={alert.key}
-                    className="flex items-center p-4 bg-white rounded-xl border-2 border-slate-200 cursor-pointer hover:border-red-300 hover:shadow-md transition-all"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={state[alert.key] !== false}
-                      onChange={async (e) => {
-                        try {
-                          const updatedState = await updateFeederSettings({ [alert.field]: e.target.checked });
-                          setState(updatedState);
-                        } catch (error) {
-                          console.error(`Failed to update ${alert.key}:`, error);
-                        }
-                      }}
-                      className="w-5 h-5 mr-3 accent-red-500"
-                    />
-                    <span className="text-lg mr-3">{alert.icon}</span>
-                    <span className="text-base font-semibold text-slate-800">{alert.label}</span>
-                  </label>
-                ))}
+                <div>
+                  <div className="text-sm font-bold text-slate-700 mb-2">Daily times</div>
+                  <p className="text-xs text-slate-500 mb-2">Change a clock time here. For example, set 06:00 to 07:00.</p>
+                  <div className="space-y-2">
+                    {((state.dailySchedule && state.dailySchedule.length)
+                      ? state.dailySchedule
+                      : Object.keys(todayPlan?.slots_kg || {})
+                    ).slice().sort().map((timeStr) => (
+                      <label key={timeStr} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-200">
+                        <span className="text-sm font-semibold text-slate-600 w-14">{timeStr}</span>
+                        <input
+                          type="time"
+                          defaultValue={timeStr}
+                          onBlur={async (e) => {
+                            const next = e.target.value;
+                            if (!next || next === timeStr) return;
+                            try {
+                              await applyDailyTimeChange(timeStr, next);
+                            } catch (error) {
+                              console.error('Failed to update daily time:', error);
+                              e.target.value = timeStr;
+                            }
+                          }}
+                          className="flex-1 rounded-lg border-2 border-indigo-200 px-3 py-2 font-semibold"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

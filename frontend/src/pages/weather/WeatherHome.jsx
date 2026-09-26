@@ -14,6 +14,90 @@ function pickTodayIndex(daily) {
   return 0;
 }
 
+function formatClock(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatWhen(iso, nowIso) {
+  const when = new Date(iso);
+  const now = new Date(nowIso || Date.now());
+  if (Number.isNaN(when.getTime())) return formatClock(iso);
+  const time = formatClock(iso);
+  const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((dayStart(when) - dayStart(now)) / 86400000);
+  if (dayDiff <= 0) return `today at ${time}`;
+  if (dayDiff === 1) return `tomorrow at ${time}`;
+  return `${when.toLocaleDateString([], { weekday: 'long' })} at ${time}`;
+}
+
+function impactText(mm) {
+  if (!Number.isFinite(mm) || mm <= 0) return 'very light, with little rain expected to reach the ground';
+  if (mm < 2.5) return `light drizzle, about ${mm.toFixed(1)} mm`;
+  if (mm < 7.6) return `light rain, about ${mm.toFixed(1)} mm`;
+  if (mm < 15) return `moderate rain, about ${mm.toFixed(1)} mm`;
+  return `heavy rain, about ${mm.toFixed(1)} mm`;
+}
+
+function rainSummary(forecast, placeName) {
+  const hourly = forecast?.hourly;
+  const current = forecast?.current;
+  if (!hourly?.time?.length) return null;
+
+  const hours = hourly.time.map((time, i) => ({
+    time,
+    prob: Number(hourly.precipitation_probability?.[i]),
+    mm: Number(hourly.precipitation?.[i]),
+  }));
+
+  const nowIso = current?.time || hours[0]?.time;
+  const nowKey = String(nowIso || '').slice(0, 13);
+  const upcoming = hours.filter((h) => String(h.time).slice(0, 13) >= nowKey);
+  if (!upcoming.length) return null;
+
+  const nowSlot = upcoming.find((h) => String(h.time).slice(0, 13) === nowKey) || upcoming[0];
+  const nowProb = Number.isFinite(nowSlot?.prob) ? Math.round(nowSlot.prob) : null;
+  const fallingMm = Number(current?.precipitation);
+  const rainingNow = (Number.isFinite(fallingMm) && fallingMm > 0) || (nowProb != null && nowProb >= 40 && Number(nowSlot?.mm) > 0);
+  const place = placeName || 'This location';
+  const nowLine = nowProb == null
+    ? ''
+    : `Right now the chance is ${nowProb}%, and ${rainingNow ? 'rain is falling' : 'no rain is falling'}.`;
+
+  const nextIndex = upcoming.findIndex((h) => (Number.isFinite(h.prob) && h.prob >= 40) || (Number.isFinite(h.mm) && h.mm >= 0.1));
+  if (nextIndex < 0) {
+    return [`No rain is expected for ${place} in the next few days.`, nowLine].filter(Boolean).join(' ');
+  }
+
+  const event = [];
+  for (let i = nextIndex; i < upcoming.length; i += 1) {
+    const h = upcoming[i];
+    const stillWet = (Number.isFinite(h.prob) && h.prob >= 20) || (Number.isFinite(h.mm) && h.mm >= 0.1);
+    if (!stillWet && event.length) break;
+    if (stillWet) event.push(h);
+  }
+  if (!event.length) event.push(upcoming[nextIndex]);
+
+  const start = event[0];
+  const peak = event.reduce((best, h) => (h.prob > best.prob ? h : best), start);
+  const totalMm = event.reduce((sum, h) => sum + (Number.isFinite(h.mm) ? h.mm : 0), 0);
+  const startProb = Math.round(start.prob);
+  const peakProb = Math.round(peak.prob);
+  const sameHour = String(start.time).slice(0, 13) === String(peak.time).slice(0, 13);
+
+  const chanceLine = sameHour || peakProb <= startProb
+    ? `The chance is ${startProb}%.`
+    : `The chance is ${startProb}% then, and peaks at ${peakProb}% ${formatWhen(peak.time, nowIso)}.`;
+
+  return [
+    `Next rain for ${place} is ${formatWhen(start.time, nowIso)}.`,
+    chanceLine,
+    `Impact: ${impactText(totalMm)}.`,
+    nowLine,
+  ].filter(Boolean).join(' ');
+}
+
 function deriveAlerts(forecast) {
   const daily = forecast?.daily;
   if (!daily) return [];
@@ -21,17 +105,8 @@ function deriveAlerts(forecast) {
   const alerts = [];
   const idx = 0;
 
-  const p = daily?.precipitation_probability_max?.[idx];
   const gust = daily?.wind_gusts_10m_max?.[idx];
   const wcode = daily?.weather_code?.[idx];
-
-  if (Number(p) >= 70) {
-    alerts.push({
-      level: 'warning',
-      title: 'High rain chance',
-      body: `Precipitation probability is ${Math.round(p)}% today.`,
-    });
-  }
 
   if (Number(gust) >= 50) {
     alerts.push({
@@ -53,7 +128,7 @@ function deriveAlerts(forecast) {
 }
 
 export default function WeatherHome() {
-  const { forecast, loading, settings, selectedMunicipality, onMunicipalityChange } = useWeather();
+  const { forecast, loading, settings, selectedMunicipality, onMunicipalityChange, location } = useWeather();
 
   const unitSymbol = settings?.units?.temperatureUnit === 'fahrenheit' ? '°F' : '°C';
 
@@ -67,6 +142,8 @@ export default function WeatherHome() {
   const uvMax = daily?.uv_index_max?.[todayIdx];
 
   const alerts = useMemo(() => deriveAlerts(forecast), [forecast]);
+  const placeName = selectedMunicipality?.display_name || location?.name || 'this location';
+  const rainNote = useMemo(() => rainSummary(forecast, placeName), [forecast, placeName]);
 
   if (loading && !forecast) {
     return (
@@ -95,17 +172,22 @@ export default function WeatherHome() {
       </div>
 
       {/* PRIMARY FOCUS BADGE */}
-      {selectedMunicipality?.is_primary && (
-        <div className="card p-4 flex items-center gap-3">
-          <span className="text-3xl">⭐</span>
-          <div>
-            <div className="font-bold">High-Accuracy Weather Forecast</div>
-            <div className="text-sm text-cyan-200/70">
-              Calapan City is optimized for 95%+ forecast accuracy with specialized ML models
-            </div>
+      <div className="card p-4 flex items-center gap-3">
+        <span className="text-3xl">📡</span>
+        <div>
+          <div className="font-bold">Live weather reading</div>
+          <div className="text-sm text-cyan-200/70">
+            Current conditions from Open-Meteo for this location. Temperature, humidity, wind, and rain chance are the service&apos;s live readings.
           </div>
         </div>
-      )}
+      </div>
+
+      <div className="card p-4 border border-sky-400/40">
+          <div className="font-bold text-base">Next rain</div>
+        <div className="text-sm mt-2 leading-relaxed" style={{ color: '#e6f7ff' }}>
+          {rainNote || 'Waiting for the live reading. Click Refresh if this stays blank.'}
+        </div>
+      </div>
 
       {alerts.length > 0 && (
         <div className="space-y-2">

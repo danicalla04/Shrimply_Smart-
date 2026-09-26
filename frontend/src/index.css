@@ -111,12 +111,12 @@ h1, h2, .aq-display {
 .btn-modern:hover, .btn-primary:hover { filter: brightness(1.08); }
 
 .btn-secondary-modern, .btn-secondary {
-  background: rgba(8, 36, 64, 0.8);
-  color: #e0f2fe;
-  border: 1px solid rgba(125, 211, 252, 0.35);
+  background: #123a5c;
+  color: #ffffff;
+  border: 1px solid #7dd3fc;
   border-radius: 12px;
   padding: 0.7rem 1.15rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -944,9 +944,23 @@ h1, h2, .aq-display {
   border-color: rgba(148, 163, 184, 0.16) !important;
 }
 .aq-canvas input, .aq-canvas select, .aq-canvas textarea {
-  background: rgba(2, 14, 28, 0.78) !important;
+  background-color: rgba(2, 14, 28, 0.78) !important;
   color: #e6f7ff !important;
   border-color: rgba(148, 163, 184, 0.22) !important;
+}
+.aq-canvas select.municipality-select {
+  background-color: #123a5c !important;
+  color: #ffffff !important;
+  border: 1px solid #7dd3fc !important;
+  min-height: 3rem;
+  font-weight: 700;
+}
+.aq-canvas select {
+  color-scheme: dark;
+}
+.aq-canvas select option {
+  background: #0b1f33 !important;
+  color: #f8fafc !important;
 }
 .aq-canvas tbody tr:hover,
 .reports-history-row:hover {
@@ -1429,9 +1443,9 @@ html.theme-light .aq-canvas [class*="bg-slate-950"] {
   border-radius: 0.75rem;
   font-size: 0.875rem;
   font-weight: 700;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  color: #c5d0dc;
-  background: transparent;
+  border: 1px solid #7dd3fc;
+  color: #f8fafc;
+  background: #123a5c;
   text-decoration: none;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }

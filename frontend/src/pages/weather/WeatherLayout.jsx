@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import useDebouncedValue from '../../hooks/useDebouncedValue';
-import { fetchAirQuality, fetchForecast, reverseGeocode, searchLocations } from '../../services/weather/openMeteo';
+import { fetchForecast, reverseGeocode, searchLocations } from '../../services/weather/openMeteo';
 import { getDefaultWeatherSettings, getWeatherSettings, mergeWeatherSettings } from '../../services/weather/settings';
-import { getEnsembleForecast } from '../../services/weather/ensembleForecaster';
-import { applyMLCorrection } from '../../services/weather/mlCorrection';
-import { batchSavePredictions, preparePredictionData } from '../../services/weather/predictionLogger';
 import { fetchMunicipalities, municipalityToLocation } from '../../services/weather/municipalities';
 import { WeatherProvider } from './WeatherContext';
 
@@ -36,7 +33,6 @@ export default function WeatherLayout() {
   const [selectedMunicipality, setSelectedMunicipality] = useState(null);
 
   const [forecast, setForecast] = useState(null);
-  const [air, setAir] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -168,59 +164,21 @@ export default function WeatherLayout() {
 
     try {
       const common = {
-        latitude: location.latitude,
-        longitude: location.longitude,
+        latitude: Number(location.latitude),
+        longitude: Number(location.longitude),
         timezone: 'auto',
       };
 
-      // Use ensemble forecasting for improved accuracy
-      const ensembleData = await getEnsembleForecast(
-        location.latitude,
-        location.longitude,
+      const forecastJson = await fetchForecast(
         {
-          days: 7,
-          signal: controller.signal,
-        }
+          ...common,
+          ...settings.units,
+          forecastDays: 7,
+        },
+        { signal: controller.signal }
       );
 
-      // Phase 3: Apply ML corrections and save for prediction logging
-      let mlCorrectionData = null;
-      if (ensembleData) {
-        try {
-          mlCorrectionData = await applyMLCorrection(ensembleData);
-        } catch (mlError) {
-          console.warn('[WeatherLayout] ML correction failed, using ensemble only:', mlError);
-        }
-
-        // Phase 3: Log predictions for accuracy tracking
-        try {
-          const locationName = location.name || 'unknown';
-          const predictions = preparePredictionData(locationName, ensembleData, mlCorrectionData);
-          await batchSavePredictions(predictions);
-          console.log('[WeatherLayout] Saved', predictions.length, 'predictions for feedback loop');
-        } catch (logError) {
-          console.warn('[WeatherLayout] Failed to log predictions:', logError);
-          // Don't fail the weather load if logging fails
-        }
-      }
-
-      // Fallback to individual API if ensemble fails
-      let forecastJson = ensembleData;
-      if (!ensembleData) {
-        forecastJson = await fetchForecast(
-          {
-            ...common,
-            ...settings.units,
-            forecastDays: 7,
-          },
-          { signal: controller.signal }
-        );
-      }
-
-      const airJson = await fetchAirQuality(common, { signal: controller.signal });
-
       setForecast(forecastJson);
-      setAir(airJson);
       setLastUpdated(new Date());
     } catch (e) {
       if (e?.name === 'AbortError') return;
@@ -331,7 +289,6 @@ export default function WeatherLayout() {
         setSettings((s) => ({ ...s, ...merged }));
       },
       forecast,
-      air,
       loading,
       error,
       lastUpdated,
@@ -340,7 +297,7 @@ export default function WeatherLayout() {
       selectedMunicipality,
       onMunicipalityChange: handleMunicipalityChange,
     }),
-    [settings, location, forecast, air, loading, error, lastUpdated, municipalities, selectedMunicipality]
+    [settings, location, forecast, loading, error, lastUpdated, municipalities, selectedMunicipality]
   );
 
   const navLinkClass = ({ isActive }) =>
@@ -442,7 +399,7 @@ export default function WeatherLayout() {
         <Outlet />
 
         <div className="mt-10 text-xs text-slate-500">
-          Forecast data: Open‑Meteo • WeatherAPI • NASA APIs. Analytics: AI Ensemble Forecasting with Confidence Scoring.
+          Live readings from Open-Meteo for the selected location.
         </div>
       </div>
     </WeatherProvider>
