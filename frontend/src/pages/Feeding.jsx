@@ -103,7 +103,7 @@ export default function Feeding() {
   const isTelemetryFresh = (ts = lastTelemetryRef.current) => {
     if (!ts) return false;
     const age = Date.now() - new Date(ts).getTime();
-    return Number.isFinite(age) && age >= 0 && age <= TELEMETRY_STALE_MS;
+    return Number.isFinite(age) && age >= -5000 && age <= TELEMETRY_STALE_MS;
   };
 
   const flash = (msg, type = 'error') => {
@@ -606,7 +606,7 @@ export default function Feeding() {
       const tel = await wemosApi.getLatestTelemetry().catch(() => null);
       if (tel?.timestamp) {
         const age = Date.now() - new Date(tel.timestamp).getTime();
-        if (Number.isFinite(age) && age >= 0 && age <= TELEMETRY_STALE_MS) {
+        if (Number.isFinite(age) && age >= -5000 && age <= TELEMETRY_STALE_MS) {
           setLastTelemetryTimestamp(tel.timestamp);
           if (tel.distance_cm != null && tel.distance_cm !== 'NA') {
             setUltrasonicDistance(String(tel.distance_cm));

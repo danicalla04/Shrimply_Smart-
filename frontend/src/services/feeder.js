@@ -312,7 +312,7 @@ export function hopperPercentFromDistance(distanceCm) {
 export function isFeederTelemetryFresh(timestamp, now = Date.now()) {
   if (!timestamp) return false
   const age = now - new Date(timestamp).getTime()
-  return Number.isFinite(age) && age >= 0 && age <= FEEDER_TELEMETRY_STALE_MS
+  return Number.isFinite(age) && age >= -5_000 && age <= FEEDER_TELEMETRY_STALE_MS
 }
 
 export function scheduleNext(state, fromTs = Date.now()) {

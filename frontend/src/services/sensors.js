@@ -14,7 +14,9 @@ export const SENSOR_STALE_MS = 15_000
 export function isSensorStreamFresh(timestamp, now = Date.now()) {
   if (!timestamp) return false
   const age = now - new Date(timestamp).getTime()
-  return Number.isFinite(age) && age >= 0 && age <= SENSOR_STALE_MS
+  // The page clock ticks once a second, so a brand-new packet can look
+  // slightly in the future and was flashing offline for that one second.
+  return Number.isFinite(age) && age >= -5_000 && age <= SENSOR_STALE_MS
 }
 
 export function getDefaultSensors() {
