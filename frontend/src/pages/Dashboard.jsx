@@ -40,7 +40,7 @@ ChartJS.register(
 )
 
 function formatOfflineDuration(ms) {
-  const totalSec = Math.max(45, Math.round((Number.isFinite(ms) ? ms : 45000) / 1000))
+  const totalSec = Math.max(0, Math.round((Number.isFinite(ms) ? ms : 0) / 1000))
   const hours = Math.floor(totalSec / 3600)
   const minutes = Math.floor((totalSec % 3600) / 60)
   const seconds = totalSec % 60
@@ -179,7 +179,12 @@ const Dashboard = () => {
           setPhLevel(normalizeSensorValue('ph', sensorsData.ph))
           setTurbidity(normalizeSensorValue('turbidity', sensorsData.turbidity))
           setTds(normalizeSensorValue('tds', sensorsData.tds))
-          setLastSensorTimestamp(sensorsData.timestamp || null)
+          if (sensorsData.timestamp) {
+            setLastSensorTimestamp((prev) => {
+              if (!prev) return sensorsData.timestamp
+              return new Date(sensorsData.timestamp) >= new Date(prev) ? sensorsData.timestamp : prev
+            })
+          }
         }
       } catch (e) {
         console.warn('Sensor poll failed:', e)
@@ -604,7 +609,7 @@ const Dashboard = () => {
     }
   }
 
-  const sensorAgeMs = lastSensorTimestamp ? (nowTs - new Date(lastSensorTimestamp).getTime()) : Number.POSITIVE_INFINITY
+  const sensorAgeMs = lastSensorTimestamp ? (Date.now() - new Date(lastSensorTimestamp).getTime()) : Number.POSITIVE_INFINITY
   const sensorOnline = isSensorStreamFresh(lastSensorTimestamp, nowTs)
   const overallQuality = summarizeOverallQuality({
     temperature,

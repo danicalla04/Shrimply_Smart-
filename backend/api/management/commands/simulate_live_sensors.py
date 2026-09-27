@@ -88,11 +88,21 @@ class Command(BaseCommand):
                 reading.turbidity = round(turbidity, 1)
                 reading.tds = tds
                 reading.timestamp = now
-                reading.save(update_fields=['temperature', 'ph', 'turbidity', 'tds', 'timestamp'])
+                # auto_now_add ignores a normal save, so write the clock directly.
+                SensorReading.objects.filter(pk=reading.pk).update(
+                    temperature=reading.temperature,
+                    ph=reading.ph,
+                    turbidity=reading.turbidity,
+                    tds=reading.tds,
+                    timestamp=now,
+                )
 
                 telemetry.distance_cm = round(distance, 1)
                 telemetry.timestamp = now
-                telemetry.save(update_fields=['distance_cm', 'timestamp'])
+                FeederTelemetry.objects.filter(pk=telemetry.pk).update(
+                    distance_cm=telemetry.distance_cm,
+                    timestamp=now,
+                )
 
                 inserted = False
                 if time.monotonic() - last_insert >= INSERT_EVERY_SEC:
@@ -110,8 +120,8 @@ class Command(BaseCommand):
                     # Keep the live row newest so the dashboard follows the 5-second changes.
                     reading.timestamp = timezone.now()
                     telemetry.timestamp = reading.timestamp
-                    reading.save(update_fields=['timestamp'])
-                    telemetry.save(update_fields=['timestamp'])
+                    SensorReading.objects.filter(pk=reading.pk).update(timestamp=reading.timestamp)
+                    FeederTelemetry.objects.filter(pk=telemetry.pk).update(timestamp=telemetry.timestamp)
                     last_insert = time.monotonic()
                     inserted = True
 
@@ -121,6 +131,7 @@ class Command(BaseCommand):
                     f'NTU={reading.turbidity}  TDS={reading.tds}  '
                     f'ultrasonic={distance:.1f}cm (~{_hopper_percent(distance)}%)'
                 )
+                self.stdout.flush()
                 if once:
                     return
                 time.sleep(interval)

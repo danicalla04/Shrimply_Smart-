@@ -9,7 +9,7 @@ export const DEFAULT_SENSORS = Object.freeze({
   tds: null,
 })
 
-export const SENSOR_STALE_MS = 15_000
+export const SENSOR_STALE_MS = 30_000
 
 export function isSensorStreamFresh(timestamp, now = Date.now()) {
   if (!timestamp) return false
