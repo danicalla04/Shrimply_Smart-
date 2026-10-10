@@ -691,9 +691,10 @@ class SensorCalibrationViewSet(viewsets.ModelViewSet):
 class AlertViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # PHP inserts bypass Django signals; reconcile before displaying alert history.
-        AlertService.recover_connection_alerts(
+        AlertService.recover_alerts(
             sensor_reading=SensorReading.objects.first(),
             feeder_telemetry=FeederTelemetry.objects.first(),
+            feeder=Feeder.objects.first(),
         )
         return super().get_queryset()
 

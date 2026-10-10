@@ -14,6 +14,7 @@ from datetime import timedelta
 import logging
 import threading
 import time
+import math
 
 # Create a dedicated logger for alert service
 logger = logging.getLogger('alert_service')
@@ -53,6 +54,7 @@ class AlertService:
         logger.debug(f'  ├─ Turbidity: {sensor_reading.turbidity} NTU')
         logger.debug(f'  └─ TDS: {sensor_reading.tds} ppm')
         
+        AlertService.recover_alerts(sensor_reading=sensor_reading)
         created_alerts = []
         thresholds = Threshold.objects.all()
         
@@ -69,8 +71,8 @@ class AlertService:
             logger.debug(f'  [{idx}/{thresholds.count()}] Checking {param}:')
             logger.debug(f'      Value: {value} | Range: {threshold.min_value}-{threshold.max_value} {threshold.unit}')
             
-            if value is None or value <= 0:
-                logger.debug(f'      ⊘ Skipped: Invalid value (None or ≤0)')
+            if value is None or not math.isfinite(value):
+                logger.debug('      Skipped: Missing or non-finite value')
                 continue
             
             # Check if reading is outside acceptable range
@@ -426,8 +428,8 @@ class AlertService:
         return alert
 
     @staticmethod
-    def recover_connection_alerts(sensor_reading=None, feeder_telemetry=None):
-        """Mark recovered connection alerts read, keeping their history and timestamp."""
+    def recover_alerts(sensor_reading=None, feeder_telemetry=None, feeder=None):
+        """Mark recovered conditions read, keeping alert rows, values and timestamps."""
         now = timezone.now()
         if sensor_reading is not None and sensor_reading.timestamp is not None and (
             now - sensor_reading.timestamp
@@ -437,21 +439,43 @@ class AlertService:
             Alert.objects.filter(parameter='sensor_offline', resolved=False).update(
                 resolved=True, message=f'Sensor stream recovered at {when}. Automatically marked as read.'
             )
+            thresholds = {item.parameter: item for item in Threshold.objects.all()}
             for param in AlertService.SENSOR_PARAMS:
-                if getattr(sensor_reading, param, None) is None:
+                value = getattr(sensor_reading, param, None)
+                if value is None or not math.isfinite(value):
                     continue
                 AlertService.clear_snooze(param)
                 Alert.objects.filter(parameter=param, severity='critical', resolved=False, value__isnull=True).update(
                     resolved=True,
                     message=f'{AlertService._param_label(param)} sensor reading restored at {when}. Automatically marked as read.',
                 )
-        if feeder_telemetry is not None and feeder_telemetry.timestamp is not None and feeder_telemetry.distance_cm is not None and (
+                threshold = thresholds.get(param)
+                if threshold is not None and threshold.min_value <= value <= threshold.max_value:
+                    Alert.objects.filter(parameter=param, resolved=False, value__isnull=False).update(
+                        resolved=True,
+                        message=f'{AlertService._param_label(param)} recovered at {when}: {value:g}{threshold.unit} within range {threshold.min_value:g}-{threshold.max_value:g}{threshold.unit}. Automatically marked as read.',
+                    )
+        if feeder_telemetry is not None and feeder_telemetry.timestamp is not None and feeder_telemetry.distance_cm is not None and math.isfinite(feeder_telemetry.distance_cm) and (
             now - feeder_telemetry.timestamp
         ).total_seconds() < AlertService.FEEDER_STALE_SECONDS:
             AlertService.clear_snooze('feeder_connection')
             Alert.objects.filter(parameter='feeder_connection', resolved=False).update(
                 resolved=True, message='Feeder device / ultrasonic reconnected. Automatically marked as read.'
             )
+            distance = feeder_telemetry.distance_cm
+            if 0 <= distance < AlertService.FEEDER_LOW_DISTANCE_CM:
+                AlertService.clear_snooze('feeder_level')
+                Alert.objects.filter(parameter='feeder_level', resolved=False).update(
+                    resolved=True,
+                    message=f'Feeder feed level recovered (ultrasonic {distance:g} cm). Automatically marked as read.',
+                )
+        if feeder is not None and feeder.capacity_max > 0:
+            percent = int(round(max(0.0, min(100.0, feeder.capacity_current / feeder.capacity_max * 100.0))))
+            if percent > feeder.low_percent:
+                AlertService.clear_snooze('feeder_capacity')
+                Alert.objects.filter(parameter='feeder_capacity', resolved=False).update(
+                    resolved=True, message=f'Feeder capacity recovered: {percent}% remaining. Automatically marked as read.',
+                )
 
     @staticmethod
     def check_feeder_connection():
@@ -477,7 +501,7 @@ class AlertService:
         )
 
         if not stale:
-            AlertService.recover_connection_alerts(feeder_telemetry=latest)
+            AlertService.recover_alerts(feeder_telemetry=latest)
             return created
 
         if AlertService.is_snoozed(param):
@@ -571,18 +595,7 @@ class AlertService:
         is_low = dist >= threshold
 
         if not is_low:
-            AlertService.clear_snooze(param)
-            open_alert = Alert.objects.filter(parameter=param, resolved=False).first()
-            if open_alert:
-                recovered = (
-                    f'Feeder feed level recovered (ultrasonic {dist:.1f} cm, '
-                    f'low at {threshold:.0f} cm or above). '
-                    f'Please acknowledge this alert.'
-                )
-                if open_alert.message != recovered:
-                    open_alert.message = recovered
-                    open_alert.value = dist
-                    open_alert.save(update_fields=['message', 'value'])
+            AlertService.recover_alerts(feeder_telemetry=latest)
             return created
 
         if AlertService.is_snoozed(param):
@@ -662,7 +675,7 @@ class AlertService:
                 created.append(alert)
             return created
 
-        AlertService.recover_connection_alerts(sensor_reading=sensor_reading)
+        AlertService.recover_alerts(sensor_reading=sensor_reading)
 
         for param in AlertService.SENSOR_PARAMS:
             value = getattr(sensor_reading, param, None)

@@ -429,7 +429,7 @@ class ConnectionAlertRecoveryTests(APITestCase):
         reading.timestamp = telemetry.timestamp = timezone.now() - timedelta(minutes=2)
         offline = self.alert('sensor_offline')
         connection = self.alert('feeder_connection')
-        AlertService.recover_connection_alerts(reading, telemetry)
+        AlertService.recover_alerts(reading, telemetry)
         offline.refresh_from_db()
         connection.refresh_from_db()
         self.assertFalse(offline.resolved)
@@ -464,3 +464,97 @@ class ConnectionAlertRecoveryTests(APITestCase):
         self.assertTrue(previous.resolved)
         self.assertEqual(Alert.objects.filter(parameter='ph', resolved=False).count(), 1)
         self.assertEqual(Alert.objects.filter(parameter='ph').count(), 2)
+
+
+class RangeAlertRecoveryTests(APITestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        from .models import Threshold
+        cache.clear()
+        self.ranges = {'temperature': (25, 32), 'ph': (6, 9), 'turbidity': (0, 20), 'tds': (500, 1200)}
+        for param, (low, high) in self.ranges.items():
+            Threshold.objects.create(parameter=param, min_value=low, max_value=high)
+        self.user = User.objects.create_user('range_viewer')
+        self.client.force_authenticate(self.user)
+
+    def alert(self, parameter, value, severity='warning'):
+        from .models import Alert
+        return Alert.objects.create(parameter=parameter, value=value, severity=severity, message='Out of range')
+
+    def test_normal_reading_resolves_all_severities_and_preserves_history(self):
+        from .models import SensorReading, Alert
+        alerts = [self.alert(param, high + 10, severity) for param, (_, high) in self.ranges.items() for severity in ('low', 'high', 'warning', 'critical')]
+        originals = [(alert.pk, alert.value, alert.timestamp) for alert in alerts]
+        SensorReading.objects.create(temperature=25, ph=9, turbidity=0, tds=1200)
+        self.assertEqual(Alert.objects.count(), 16)
+        self.assertFalse(Alert.objects.filter(resolved=False).exists())
+        for pk, value, timestamp in originals:
+            alert = Alert.objects.get(pk=pk)
+            self.assertEqual((alert.value, alert.timestamp), (value, timestamp))
+            self.assertIn('within range', alert.message)
+
+    def test_out_of_range_null_and_stale_values_leave_alerts_unread(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import SensorReading, Alert
+        from .alert_service import AlertService
+        for param in self.ranges:
+            self.alert(param, 99)
+        SensorReading.objects.create(temperature=40, ph=None, turbidity=21, tds=400)
+        self.assertEqual(Alert.objects.filter(resolved=False).count(), 4)
+        reading = SensorReading(temperature=28, ph=7, turbidity=10, tds=800, timestamp=timezone.now() - timedelta(minutes=2))
+        AlertService.recover_alerts(sensor_reading=reading)
+        self.assertEqual(Alert.objects.filter(resolved=False).count(), 4)
+
+    def test_php_readings_recover_matching_ranges_on_summary(self):
+        from .models import SensorReading
+        temperature = self.alert('temperature', 40)
+        ph = self.alert('ph', 10)
+        SensorReading.objects.bulk_create([SensorReading(temperature=28, ph=10, turbidity=10, tds=800)])
+        response = self.client.get('/api/alerts/summary/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['total'], 1)
+        temperature.refresh_from_db()
+        ph.refresh_from_db()
+        self.assertTrue(temperature.resolved)
+        self.assertFalse(ph.resolved)
+
+    def test_new_range_breach_after_recovery_creates_new_alert(self):
+        from unittest.mock import patch
+        from .models import SensorReading, Alert
+        from .alert_service import AlertService
+        previous = self.alert('temperature', 40)
+        SensorReading.objects.create(temperature=28, ph=7, turbidity=10, tds=800)
+        unsafe = SensorReading.objects.create(temperature=40, ph=7, turbidity=10, tds=800)
+        with patch.object(AlertService, 'notify_alert_async'):
+            AlertService.check_reading_and_create_alerts(unsafe)
+        previous.refresh_from_db()
+        self.assertTrue(previous.resolved)
+        self.assertEqual(Alert.objects.filter(parameter='temperature', resolved=False).count(), 1)
+        self.assertEqual(Alert.objects.filter(parameter='temperature').count(), 2)
+
+    def test_feeder_level_recovers_only_below_low_distance(self):
+        from .models import FeederTelemetry
+        alert = self.alert('feeder_level', 35)
+        for distance in (None, 32, 35):
+            FeederTelemetry.objects.create(distance_cm=distance)
+            alert.refresh_from_db()
+            self.assertFalse(alert.resolved)
+        FeederTelemetry.objects.create(distance_cm=23)
+        alert.refresh_from_db()
+        self.assertTrue(alert.resolved)
+        self.assertEqual(alert.value, 35)
+
+    def test_feeder_capacity_recovers_after_refill(self):
+        from .models import Feeder
+        feeder = Feeder.objects.create(capacity_max=1000, capacity_current=100, low_percent=15)
+        alert = self.alert('feeder_capacity', 10)
+        feeder.capacity_current = 150
+        feeder.save()
+        alert.refresh_from_db()
+        self.assertFalse(alert.resolved)
+        feeder.capacity_current = 1000
+        feeder.save()
+        alert.refresh_from_db()
+        self.assertTrue(alert.resolved)
+        self.assertEqual(alert.value, 10)
