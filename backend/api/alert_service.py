@@ -426,13 +426,40 @@ class AlertService:
         return alert
 
     @staticmethod
+    def recover_connection_alerts(sensor_reading=None, feeder_telemetry=None):
+        """Mark recovered connection alerts read, keeping their history and timestamp."""
+        now = timezone.now()
+        if sensor_reading is not None and sensor_reading.timestamp is not None and (
+            now - sensor_reading.timestamp
+        ).total_seconds() < AlertService.STALE_READING_SECONDS:
+            when = timezone.localtime(sensor_reading.timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            AlertService.clear_snooze('sensor_offline')
+            Alert.objects.filter(parameter='sensor_offline', resolved=False).update(
+                resolved=True, message=f'Sensor stream recovered at {when}. Automatically marked as read.'
+            )
+            for param in AlertService.SENSOR_PARAMS:
+                if getattr(sensor_reading, param, None) is None:
+                    continue
+                AlertService.clear_snooze(param)
+                Alert.objects.filter(parameter=param, severity='critical', resolved=False, value__isnull=True).update(
+                    resolved=True,
+                    message=f'{AlertService._param_label(param)} sensor reading restored at {when}. Automatically marked as read.',
+                )
+        if feeder_telemetry is not None and feeder_telemetry.timestamp is not None and feeder_telemetry.distance_cm is not None and (
+            now - feeder_telemetry.timestamp
+        ).total_seconds() < AlertService.FEEDER_STALE_SECONDS:
+            AlertService.clear_snooze('feeder_connection')
+            Alert.objects.filter(parameter='feeder_connection', resolved=False).update(
+                resolved=True, message='Feeder device / ultrasonic reconnected. Automatically marked as read.'
+            )
+
+    @staticmethod
     def check_feeder_connection():
         """
         Create/refresh a SINGLE open 'feeder_connection' alert when the feeder
         device (ultrasonic telemetry) is offline or stale. When the device is
-        fresh again, refresh the open alert's message (user acknowledges via
-        Mark as Read). Returns list of newly created Alert objects for WS
-        broadcast.
+        fresh again with an ultrasonic reading, automatically mark the alert read.
+        Returns newly created Alert objects for WS broadcast.
         """
         from .models import FeederTelemetry
 
@@ -450,17 +477,7 @@ class AlertService:
         )
 
         if not stale:
-            # Device online again → allow future alerts and refresh any open one.
-            AlertService.clear_snooze(param)
-            open_alert = Alert.objects.filter(parameter=param, resolved=False).first()
-            if open_alert:
-                recovered = (
-                    'Feeder device / ultrasonic reconnected. '
-                    'Please acknowledge this alert.'
-                )
-                if open_alert.message != recovered:
-                    open_alert.message = recovered
-                    open_alert.save(update_fields=['message'])
+            AlertService.recover_connection_alerts(feeder_telemetry=latest)
             return created
 
         if AlertService.is_snoozed(param):
@@ -645,44 +662,12 @@ class AlertService:
                 created.append(alert)
             return created
 
-        # Fresh stream again → allow future offline alerts, but do NOT auto-resolve
-        # open offline alerts. "Mark as Read" is the only way to clear them (UI maps
-        # resolved → read). Auto-resolve made alerts look "already read" without the user.
-        AlertService.clear_snooze('sensor_offline')
-        open_offline = Alert.objects.filter(
-            parameter='sensor_offline', severity='critical', resolved=False,
-        ).first()
-        if open_offline:
-            recovered_msg = (
-                f'Sensor stream recovered at {when_str} (was offline). '
-                f'Please acknowledge this alert.'
-            )
-            if open_offline.message != recovered_msg:
-                open_offline.message = recovered_msg
-                open_offline.save(update_fields=['message'])
+        AlertService.recover_connection_alerts(sensor_reading=sensor_reading)
 
         for param in AlertService.SENSOR_PARAMS:
             value = getattr(sensor_reading, param, None)
             # Only NULL = disconnected. Numeric 0 is a valid reading.
             if value is not None:
-                # Sensor back online → allow future disconnect alerts; leave open ones
-                # for the user to acknowledge (do not auto-mark as read).
-                AlertService.clear_snooze(param)
-                open_disc = Alert.objects.filter(
-                    parameter=param,
-                    severity='critical',
-                    resolved=False,
-                    value__isnull=True,
-                ).first()
-                if open_disc:
-                    label = AlertService._param_label(param)
-                    recovered = (
-                        f'{label} sensor reading restored at {when_str}. '
-                        f'Please acknowledge this alert.'
-                    )
-                    if open_disc.message != recovered:
-                        open_disc.message = recovered
-                        open_disc.save(update_fields=['message'])
                 continue
 
             if AlertService.is_snoozed(param):
@@ -704,7 +689,7 @@ class AlertService:
                 severity='critical',
                 value__isnull=True,
                 timestamp__gte=cutoff,
-            ).exists():
+            ).exclude(message__endswith='Automatically marked as read.').exists():
                 continue
 
             lock_key = f'{AlertService._CREATE_LOCK_PREFIX}{param}'

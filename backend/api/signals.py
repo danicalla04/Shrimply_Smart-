@@ -5,7 +5,7 @@ from channels.layers import get_channel_layer
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .models import FeederTelemetry
+from .models import FeederTelemetry, SensorReading
 
 logger = logging.getLogger(__name__)
 
@@ -39,3 +39,15 @@ def broadcast_feeder_telemetry(sender, instance: FeederTelemetry, created: bool,
         )
     except Exception as e:
         logger.warning('[WS_FEEDER] Failed to broadcast telemetry: %s', str(e), exc_info=True)
+
+
+@receiver(post_save, sender=SensorReading)
+@receiver(post_save, sender=FeederTelemetry)
+def recover_connection_alerts(sender, instance, created, **kwargs):
+    if not created or kwargs.get('raw'):
+        return
+    from .alert_service import AlertService
+    if sender is SensorReading:
+        AlertService.recover_connection_alerts(sensor_reading=instance)
+    else:
+        AlertService.recover_connection_alerts(feeder_telemetry=instance)

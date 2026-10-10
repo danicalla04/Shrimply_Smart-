@@ -374,3 +374,93 @@ class AccountManagementTests(APITestCase):
         self.member.refresh_from_db()
         self.assertEqual(self.member.email, 'old@example.com')
         self.assertEqual(self.member.username, 'managed_member')
+
+
+class ConnectionAlertRecoveryTests(APITestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user('connection_viewer')
+        self.client.force_authenticate(self.user)
+
+    def alert(self, parameter, value=None):
+        from .models import Alert
+        return Alert.objects.create(parameter=parameter, severity='critical', value=value, message='Disconnected')
+
+    def test_fresh_sensor_packet_marks_only_recovered_disconnects_read(self):
+        from .models import Alert, SensorReading
+        offline = self.alert('sensor_offline')
+        temperature = self.alert('temperature')
+        missing_ph = self.alert('ph')
+        unsafe_temperature = self.alert('temperature', value=40)
+        original_time = offline.timestamp
+        SensorReading.objects.create(temperature=0, ph=None, turbidity=10, tds=800)
+        for alert in (offline, temperature, missing_ph, unsafe_temperature):
+            alert.refresh_from_db()
+        self.assertTrue(offline.resolved)
+        self.assertTrue(temperature.resolved)
+        self.assertFalse(missing_ph.resolved)
+        self.assertFalse(unsafe_temperature.resolved)
+        self.assertEqual(offline.timestamp, original_time)
+        self.assertEqual(Alert.objects.count(), 4)
+        self.assertIn('Automatically marked as read', offline.message)
+
+    def test_ultrasonic_recovery_preserves_low_feed_alert_and_history(self):
+        from .models import Alert, FeederTelemetry
+        connection = self.alert('feeder_connection')
+        low_feed = self.alert('feeder_level', value=35)
+        FeederTelemetry.objects.create(distance_cm=None)
+        connection.refresh_from_db()
+        self.assertFalse(connection.resolved)
+        FeederTelemetry.objects.create(distance_cm=35)
+        connection.refresh_from_db()
+        low_feed.refresh_from_db()
+        self.assertTrue(connection.resolved)
+        self.assertFalse(low_feed.resolved)
+        self.assertEqual(Alert.objects.count(), 2)
+
+    def test_stale_packets_do_not_resolve_alerts(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .models import SensorReading, FeederTelemetry
+        from .alert_service import AlertService
+        reading = SensorReading.objects.create(temperature=28, ph=7, turbidity=10, tds=800)
+        telemetry = FeederTelemetry.objects.create(distance_cm=23)
+        reading.timestamp = telemetry.timestamp = timezone.now() - timedelta(minutes=2)
+        offline = self.alert('sensor_offline')
+        connection = self.alert('feeder_connection')
+        AlertService.recover_connection_alerts(reading, telemetry)
+        offline.refresh_from_db()
+        connection.refresh_from_db()
+        self.assertFalse(offline.resolved)
+        self.assertFalse(connection.resolved)
+
+    def test_alert_list_detects_php_inserts_and_summary_counts_only_unread(self):
+        from .models import SensorReading, FeederTelemetry, Alert
+        offline = self.alert('sensor_offline')
+        connection = self.alert('feeder_connection')
+        # Bulk inserts model the PHP upload path, which bypasses post_save signals.
+        SensorReading.objects.bulk_create([SensorReading(temperature=28, ph=7, turbidity=10, tds=800)])
+        FeederTelemetry.objects.bulk_create([FeederTelemetry(distance_cm=23)])
+        response = self.client.get('/api/alerts/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 2)
+        self.assertTrue(all(alert['resolved'] for alert in response.data['results']))
+        self.assertEqual(Alert.objects.filter(resolved=False).count(), 0)
+        summary = self.client.get('/api/alerts/summary/')
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.data['total'], 0)
+
+    def test_new_disconnection_after_recovery_creates_new_unread_alert(self):
+        from unittest.mock import patch
+        from .models import SensorReading, Alert
+        from .alert_service import AlertService
+        previous = self.alert('ph')
+        SensorReading.objects.create(temperature=28, ph=7, turbidity=10, tds=800)
+        missing = SensorReading.objects.create(temperature=28, ph=None, turbidity=10, tds=800)
+        with patch.object(AlertService, 'notify_alert_async'):
+            AlertService.check_disconnected_sensors(missing)
+        previous.refresh_from_db()
+        self.assertTrue(previous.resolved)
+        self.assertEqual(Alert.objects.filter(parameter='ph', resolved=False).count(), 1)
+        self.assertEqual(Alert.objects.filter(parameter='ph').count(), 2)

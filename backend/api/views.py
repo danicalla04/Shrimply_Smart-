@@ -689,6 +689,14 @@ class SensorCalibrationViewSet(viewsets.ModelViewSet):
 
 
 class AlertViewSet(viewsets.ModelViewSet):
+    def get_queryset(self):
+        # PHP inserts bypass Django signals; reconcile before displaying alert history.
+        AlertService.recover_connection_alerts(
+            sensor_reading=SensorReading.objects.first(),
+            feeder_telemetry=FeederTelemetry.objects.first(),
+        )
+        return super().get_queryset()
+
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
     permission_classes = [IsAuthenticated, AccountPrivileges]
@@ -814,6 +822,7 @@ class AlertViewSet(viewsets.ModelViewSet):
     def summary(self, request):
         """Get alert summary with counts by severity"""
         logger.debug('[ALERT_SUMMARY_API] Fetching alert summary...')
+        self.get_queryset()
         summary = AlertService.get_alert_summary()
         logger.info(f'[ALERT_SUMMARY_API] Returning summary: {summary["total"]} total, {summary["critical"]} critical')
         return Response(summary)

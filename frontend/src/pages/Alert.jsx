@@ -98,11 +98,16 @@ const Alert = () => {
     }
   }, [])
 
-  useEffect(() => { loadAlerts(1) }, [])
-
   useEffect(() => {
-    fetchLatestSensors().catch(() => null)
-  }, [])
+    const refresh = async () => {
+      await fetchLatestSensors().catch(() => null)
+      await loadAlerts(currentPage)
+      window.dispatchEvent(new Event('alerts-changed'))
+    }
+    refresh()
+    const interval = setInterval(refresh, 10_000)
+    return () => clearInterval(interval)
+  }, [currentPage])
 
   // Generate local alerts as fallback
   const generateLocalAlerts = async () => {
