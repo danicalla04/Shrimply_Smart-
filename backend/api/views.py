@@ -1,7 +1,8 @@
+from .permissions import AccountPrivileges, user_privileges
 from django.shortcuts import render
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import api_view, action, permission_classes
-from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django.utils import timezone
@@ -275,10 +276,20 @@ def convert_turbidity_to_do(turbidity_ntu, ph, temperature):
 
 # ── User Registration View ────────────────────────────────────────────
 class RegisterView(generics.CreateAPIView):
-    """Register a new user account"""
+    """Allow administrators to create regular user accounts."""
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsAdminUser, AccountPrivileges]
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, AccountPrivileges])
+def current_user(request):
+    return Response({
+        'username': request.user.username,
+        'is_admin': request.user.is_staff,
+        'privileges': user_privileges(request.user),
+    })
 
 
 # ── Pagination helpers ─────────────────────────────────────────────────
@@ -384,10 +395,10 @@ def _time_bucket_chart(rows, start, end, bucket_count):
 class SensorReadingViewSet(viewsets.ModelViewSet):
     queryset = SensorReading.objects.all()
     serializer_class = SensorReadingSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
     pagination_class = StandardPagination
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def latest(self, request):
         """Get the latest sensor reading; also check disconnected / stale sensors."""
         try:
@@ -449,7 +460,7 @@ class SensorReadingViewSet(viewsets.ModelViewSet):
         except SensorReading.DoesNotExist:
             return Response({'error': 'No sensor readings found'}, status=404)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def chart(self, request):
         """Evenly sampled history for charts. ``?hours=1`` (or ``?days=7``) and optional ``max_points``."""
         hours = _sensor_window_hours(request, default=1)
@@ -539,7 +550,7 @@ class SensorReadingViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"[SENSOR_CREATE] ❌ Failed to generate/broadcast alerts for reading {sensor_reading.id}: {str(e)}", exc_info=True)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def check_thresholds(self, request):
         """Get latest reading with threshold status"""
         try:
@@ -581,9 +592,9 @@ class SensorReadingViewSet(viewsets.ModelViewSet):
 class ThresholdViewSet(viewsets.ModelViewSet):
     queryset = Threshold.objects.all()
     serializer_class = ThresholdSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def all(self, request):
         """Get all thresholds as a dictionary"""
         # Use fresh query from database (not cached queryset) to ensure updated values
@@ -596,7 +607,7 @@ class ThresholdViewSet(viewsets.ModelViewSet):
             }
         return Response(thresholds)
 
-    @action(detail=False, methods=['post', 'put'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post', 'put'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def update_all(self, request):
         """Bulk update all thresholds from settings page.
         Expects: { "temperature": { "min": 20, "max": 30, "unit": "°C" }, ... }
@@ -638,14 +649,14 @@ class ThresholdViewSet(viewsets.ModelViewSet):
 class SensorCalibrationViewSet(viewsets.ModelViewSet):
     queryset = SensorCalibration.objects.all()
     serializer_class = SensorCalibrationSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def all(self, request):
         from .sensor_calibration import DEFAULT_CALIBRATION, get_calibration_dict
         return Response(get_calibration_dict())
 
-    @action(detail=False, methods=['post', 'put'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post', 'put'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def update_all(self, request):
         """Bulk update calibration: { "ph": { "scale": 1, "offset": 6 }, ... }"""
         data = request.data
@@ -680,7 +691,7 @@ class SensorCalibrationViewSet(viewsets.ModelViewSet):
 class AlertViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
     pagination_class = StandardPagination
 
     @action(detail=False, methods=['get'])
@@ -706,7 +717,7 @@ class AlertViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
 
-    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['post'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def trigger_test_alert(self, request):
         """Manually create a test alert for a specific parameter
         POST data: {"parameter": "temperature", "severity": "warning", "value": 35}
@@ -799,7 +810,7 @@ class AlertViewSet(viewsets.ModelViewSet):
             logger.error(f'[MANUAL_ALERT] ❌ Failed to create test alert: {str(e)}', exc_info=True)
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated, AccountPrivileges])
     def summary(self, request):
         """Get alert summary with counts by severity"""
         logger.debug('[ALERT_SUMMARY_API] Fetching alert summary...')
@@ -892,7 +903,7 @@ class AlertViewSet(viewsets.ModelViewSet):
 class WeatherForecastViewSet(viewsets.ModelViewSet):
     queryset = WeatherForecast.objects.all()
     serializer_class = WeatherForecastSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
     
     @action(detail=False, methods=['get'])
     def current(self, request):
@@ -1045,7 +1056,7 @@ class WeatherForecastViewSet(viewsets.ModelViewSet):
 class FeederViewSet(viewsets.ModelViewSet):
     queryset = Feeder.objects.all()
     serializer_class = FeederSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
 
     def get_queryset(self):
         # Return the first feeder or create one if none exists
@@ -1384,9 +1395,9 @@ class FeederViewSet(viewsets.ModelViewSet):
             if include_weather and feeder.weather_adaptation:
                 try:
                     from .ml_feed_recommend import recommend_feed, compute_doc, fetch_today_weather
-                    season = Season.objects.filter(user=request.user, is_active=True).first()
+                    season = Season.objects.filter(is_active=True).first()
                     if season is None:
-                        season = Season.objects.filter(user=request.user).order_by('-start_date').first()
+                        season = Season.objects.all().order_by('-start_date').first()
                     weather_data = fetch_today_weather()
                     doc = compute_doc(season.start_date if season else None)
                     initial = float(season.current_shrimp_quantity or 0) if season else 0.0
@@ -1434,11 +1445,11 @@ class FeederViewSet(viewsets.ModelViewSet):
 
         season = None
         if season_id:
-            season = Season.objects.filter(user=user, id=season_id).first()
+            season = Season.objects.filter(id=season_id).first()
         if season is None:
-            season = Season.objects.filter(user=user, is_active=True).first()
+            season = Season.objects.filter(is_active=True).first()
         if season is None:
-            season = Season.objects.filter(user=user).order_by('-start_date').first()
+            season = Season.objects.all().order_by('-start_date').first()
 
         weather = fetch_today_weather()
         doc = compute_doc(season.start_date if season else None)
@@ -1649,7 +1660,7 @@ class FeederViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['get', 'post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['get', 'post'], permission_classes=[AllowAny, AccountPrivileges])
     def servo_schedule(self, request):
         """Get/set the ESP8266 servo schedule (open/close times).
 
@@ -1712,7 +1723,7 @@ class FeederViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e), 'device_url': f"{base}/setSchedule"}, status=502)
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny, AccountPrivileges])
     def servo_on(self, request):
         """Servo ON → WeMos spins LEFT (L). Queued in DB for WeMos poll + optional device proxy."""
         try:
@@ -1743,7 +1754,7 @@ class FeederViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny, AccountPrivileges])
     def servo_off(self, request):
         """Servo OFF → WeMos spins RIGHT (R). Queued in DB for WeMos poll + optional device proxy."""
         try:
@@ -1772,7 +1783,7 @@ class FeederViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny, AccountPrivileges])
     def device_distance(self, request):
         """Read ultrasonic distance from ESP8266 and (optionally) store it."""
         try:
@@ -1814,7 +1825,7 @@ class FeederViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny, AccountPrivileges])
     def telemetry(self, request):
         """Receive telemetry data from Arduino (motor state + ultrasonic distance)"""
         try:
@@ -1839,7 +1850,7 @@ class FeederViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=500)
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def update_sensors(request):
     """Update sensor readings and check for alerts.
     
@@ -1964,7 +1975,7 @@ def update_sensors(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def update_feeder_telemetry(request):
     """Store feeder telemetry (motor state + ultrasonic distance).
 
@@ -2004,7 +2015,7 @@ def update_feeder_telemetry(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def latest_feeder_telemetry(request):
     latest = FeederTelemetry.objects.order_by('-timestamp').first()
     if not latest:
@@ -2027,7 +2038,7 @@ def latest_feeder_telemetry(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def device_readings(request):
     # Header values
     device_id = request.META.get('HTTP_X_DEVICE_ID') or request.headers.get('X-Device-Id')
@@ -2107,7 +2118,7 @@ def device_readings(request):
     return Response({'saved': serializer.data}, status=201)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather(request):
     """Get weather data for a city"""
     city = request.GET.get('city', 'Oriental Mindoro')
@@ -2199,7 +2210,7 @@ def fetch_open_meteo_current(city='Calapan'):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_current(request):
     """Get current weather from enhanced predictor (OpenWeather + ML)"""
     city = request.GET.get('city', 'Oriental Mindoro')
@@ -2218,7 +2229,7 @@ def weather_current(request):
             return Response({'error': f'Error fetching current weather: {str(e)}'}, status=500)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_tomorrow(request):
     """Predict tomorrow's weather using enhanced ML"""
     city = request.GET.get('city', 'Oriental Mindoro')
@@ -2236,7 +2247,7 @@ def weather_tomorrow(request):
         return Response({'error': f'Error predicting tomorrow\'s weather: {str(e)}'}, status=500)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_weekly(request):
     """Predict weekly weather forecast using enhanced ML"""
     city = request.GET.get('city', 'Oriental Mindoro')
@@ -2269,7 +2280,7 @@ def get_city_lock(city_key):
         return _weather_locks[city_key]
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_complete(request):
     """Get complete weather data: current, tomorrow, and weekly forecast with shrimp farming impact"""
     from django.core.cache import cache
@@ -2423,7 +2434,7 @@ def weather_complete(request):
             return Response(response_data, status=200)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_municipalities(request):
     """Get list of available municipalities for weather selection"""
     try:
@@ -2459,7 +2470,7 @@ def _shrimp_label_tone(param, value):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def water_quality_status(request):
     """Assess water quality for shrimp farming based on latest sensor readings (rules/threshold-based)."""
     try:
@@ -2724,7 +2735,7 @@ def water_quality_status(request):
         return Response({'error': str(e)}, status=500)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_hourly(request):
     """Get hourly weather forecast for next 24 hours"""
     location = request.GET.get('location', 'Oriental Mindoro')
@@ -2745,7 +2756,7 @@ def weather_hourly(request):
         return Response({'error': f'Error fetching hourly forecast: {str(e)}'}, status=500)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_alerts(request):
     """Get active weather alerts and warnings"""
     location = request.GET.get('location', 'Oriental Mindoro')
@@ -2773,10 +2784,10 @@ def weather_alerts(request):
 class SeasonViewSet(viewsets.ModelViewSet):
     """CRUD + custom actions for grow-out seasons."""
     serializer_class = SeasonSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
 
     def get_queryset(self):
-        return Season.objects.filter(user=self.request.user)
+        return Season.objects.all()
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -2797,8 +2808,8 @@ class SeasonViewSet(viewsets.ModelViewSet):
         if not start_date:
             return Response({'error': 'start_date must be a valid ISO date (YYYY-MM-DD)'}, status=400)
 
-        # Season names must be unique per user (case-insensitive)
-        if Season.objects.filter(user=request.user, name__iexact=name).exists():
+        # Shared season names must be unique (case-insensitive)
+        if Season.objects.filter(name__iexact=name).exists():
             return Response(
                 {'error': f'Season name "{name}" already exists. Choose a different name.'},
                 status=400,
@@ -2810,7 +2821,7 @@ class SeasonViewSet(viewsets.ModelViewSet):
         density = request.data.get('stocking_density')
 
         # Deactivate existing active season(s)
-        Season.objects.filter(user=request.user, is_active=True).update(is_active=False)
+        Season.objects.filter(is_active=True).update(is_active=False)
 
         create_kwargs = {
             'user': request.user,
@@ -2894,7 +2905,7 @@ class SeasonViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def current(self, request):
         """Return the single active season (or 404)."""
-        season = Season.objects.filter(user=request.user, is_active=True).first()
+        season = Season.objects.filter(is_active=True).first()
         if not season:
             return Response({'detail': 'No active season'}, status=404)
         return Response(SeasonSerializer(season).data)
@@ -3340,7 +3351,7 @@ class SeasonViewSet(viewsets.ModelViewSet):
 # ──────────────────────────────────────────────────────────────────────────────
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_ensemble_correct(request):
     """
     Apply ML corrections to ensemble forecast data.
@@ -3410,7 +3421,7 @@ def weather_ensemble_correct(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_ml_info(request):
     """
     Get information about active ML models.
@@ -3443,7 +3454,7 @@ def weather_ml_info(request):
 
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_save_prediction(request):
     """
     Phase 3: Save a weather prediction for later validation
@@ -3522,7 +3533,7 @@ def weather_save_prediction(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_verify_predictions(request):
     """
     Phase 3: Verify stored predictions against actual weather
@@ -3600,12 +3611,12 @@ def weather_verify_predictions(request):
 
 
 class HarvestEntryViewSet(viewsets.ModelViewSet):
-    """CRUD for individual harvest entries (scoped to user's seasons)."""
+    """CRUD for individual harvest entries (shared pond records)."""
     serializer_class = HarvestEntrySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
 
     def get_queryset(self):
-        return HarvestEntry.objects.filter(season__user=self.request.user)
+        return HarvestEntry.objects.all()
 
     def perform_destroy(self, instance):
         season = instance.season
@@ -3616,15 +3627,15 @@ class HarvestEntryViewSet(viewsets.ModelViewSet):
 class SeasonHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     """Read-only list of ended season summaries."""
     serializer_class = SeasonHistorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
 
     def get_queryset(self):
-        return SeasonHistory.objects.filter(user=self.request.user)
+        return SeasonHistory.objects.all()
 
 
 class HistorySettingsViewSet(viewsets.ViewSet):
     """Singleton settings per user — GET / PUT / PATCH."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
 
     def _get_or_create(self, user):
         obj, _ = HistorySettings.objects.get_or_create(user=user)
@@ -3654,7 +3665,7 @@ class HistorySettingsViewSet(viewsets.ViewSet):
 # ── Notification: harvest reminder email ───────────────────────────────
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, AccountPrivileges])
 def send_harvest_reminder(request):
     """Send a harvest-reminder email based on the user's HistorySettings."""
     from django.core.mail import send_mail
@@ -3669,7 +3680,7 @@ def send_harvest_reminder(request):
     if '@' not in email:
         return Response({'error': f'Invalid email address: {email}'}, status=400)
 
-    season = Season.objects.filter(user=request.user, is_active=True).first()
+    season = Season.objects.filter(is_active=True).first()
     if not season:
         return Response({'error': 'No active season'}, status=404)
 
@@ -3711,7 +3722,7 @@ def send_harvest_reminder(request):
 # ── Piezo Buzzer Control ───────────────────────────────────────────────
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, AccountPrivileges])
 def control_buzzer(request):
     """Control the piezo buzzer on/off based on alert status.
     
@@ -3743,7 +3754,7 @@ def control_buzzer(request):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, AccountPrivileges])
 def get_buzzer_status(request):
     """Get current buzzer status."""
     try:
@@ -3769,34 +3780,34 @@ class FeedTypeViewSet(viewsets.ModelViewSet):
     """CRUD for feed types (available feed products)."""
     queryset = FeedType.objects.filter(is_active=True)
     serializer_class = FeedTypeSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticatedOrReadOnly, AccountPrivileges]
     filterset_fields = ['category', 'is_active']
     ordering_fields = ['target_min_weight_grams', 'created_at']
     ordering = ['target_min_weight_grams']
 
 
 class DailyGrowthMetricViewSet(viewsets.ModelViewSet):
-    """CRUD for daily growth metrics (scoped to user's seasons)."""
+    """CRUD for daily growth metrics (shared pond records)."""
     serializer_class = DailyGrowthMetricSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
     filterset_fields = ['season', 'date']
     ordering_fields = ['-date', 'created_at']
     ordering = ['-date']
 
     def get_queryset(self):
-        return DailyGrowthMetric.objects.filter(season__user=self.request.user)
+        return DailyGrowthMetric.objects.all()
 
 
 class GrowthPredictionViewSet(viewsets.ModelViewSet):
-    """CRUD for growth predictions (scoped to user's seasons)."""
+    """CRUD for growth predictions (shared pond records)."""
     serializer_class = GrowthPredictionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
     filterset_fields = ['season', 'is_active']
     ordering_fields = ['forecast_date', 'prediction_date', '-created_at']
     ordering = ['-forecast_date', '-prediction_date']
 
     def get_queryset(self):
-        return GrowthPrediction.objects.filter(season__user=self.request.user)
+        return GrowthPrediction.objects.all()
 
 
 # ============================================================================
@@ -3804,7 +3815,7 @@ class GrowthPredictionViewSet(viewsets.ModelViewSet):
 # ============================================================================
 
 @api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_locations_list(request):
     """
     GET: List all available Oriental Mindoro municipalities
@@ -3890,7 +3901,7 @@ def weather_locations_list(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_calapan_focus(request):
     """
     Get high-accuracy weather forecast for Calapan City
@@ -3960,7 +3971,7 @@ def weather_calapan_focus(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_municipality_forecast(request):
     """
     Get weather forecast for any Oriental Mindoro municipality
@@ -4060,7 +4071,7 @@ def weather_municipality_forecast(request):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny, AccountPrivileges])
 def weather_ml_accuracy_report(request):
     """
     Get ML model accuracy report per municipality

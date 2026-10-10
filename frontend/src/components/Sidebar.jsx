@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useLanguage } from '../context/LanguageContext'
+import { usePrivileges } from '../context/PrivilegesContext'
 import { fetchAlertSummary } from '../services/alerts'
 import { alertWebSocket } from '../services/alertWebSocket'
 
@@ -17,6 +18,7 @@ const MENU = [
 ]
 
 const Sidebar = ({ open, collapsed, onToggle, onNavigate }) => {
+  const { isAdmin } = usePrivileges()
   const location = useLocation()
   const navigate = useNavigate()
   const { t } = useLanguage()
@@ -83,7 +85,7 @@ const Sidebar = ({ open, collapsed, onToggle, onNavigate }) => {
         </button>
       </div>
       <nav className="aq-nav">
-        {MENU.map((item) => {
+        {[...MENU, ...(isAdmin ? [{ path: '/logs', label: 'Logs', icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4" /><rect x="9" y="2" width="6" height="4" rx="1" /><path d="M7 10h10M7 14h10M7 18h6" /></svg> }] : [])].map((item) => {
           const active =
             location.pathname === item.path ||
             (item.path === '/weather' && location.pathname.startsWith('/weather')) ||

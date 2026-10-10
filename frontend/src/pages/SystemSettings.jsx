@@ -1,12 +1,15 @@
+import { usePrivileges } from '../context/PrivilegesContext'
 import { useState, useEffect } from 'react'
 import { getThresholds, saveThresholds, fetchThresholds, updateThresholdsOnServer, DEFAULT_THRESHOLDS, clearThresholdCache } from '../services/settings'
 import { fetchCalibration, updateCalibrationOnServer, DEFAULT_CALIBRATION, applyCalibration } from '../services/calibration'
 import { fetchHistorySettings, updateHistorySettings } from '../services/historySettings'
+import AccountManagement from '../components/AccountManagement'
 import { useLanguage } from '../context/LanguageContext'
 
 const CYCLE_PRESETS = [90, 120, 150]
 
 const SystemSettings = () => {
+  const privileges = usePrivileges()
   const { t } = useLanguage()
   const [thresholds, setThresholds] = useState({})
   const [loading, setLoading] = useState(true)
@@ -210,6 +213,8 @@ const SystemSettings = () => {
       <h1 className="text-3xl font-bold text-gray-900 mb-2">{t('systemSettingsTitle')}</h1>
       <p className="text-gray-600 mb-6">{t('settingsSubtitle')}</p>
 
+      <AccountManagement />
+
       {/* ── Quick Actions ───────────────────────────────────── */}
       <div className="mb-8 flex gap-3">
         <button
@@ -225,6 +230,7 @@ const SystemSettings = () => {
       </div>
 
       {/* ── Harvest Cycle Length ───────────────────────────────────── */}
+      <fieldset disabled={!privileges.update}>
       <div className="card p-5 mb-8">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">Harvest Cycle Length</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -421,6 +427,7 @@ const SystemSettings = () => {
           )}
         </div>
       </form>
+      </fieldset>
     </div>
   )
 }

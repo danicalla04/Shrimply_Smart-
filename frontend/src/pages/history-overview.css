@@ -540,3 +540,34 @@ html.theme-light .history-overview .bg-blue-600\/30 span { color: #1d4ed8 !impor
 html.theme-light .history-overview svg text { fill: #1a2d32 !important; }
 html.theme-light .history-overview table { color: #1a2d32; }
 html.theme-light .history-overview th { color: #0f766e !important; }
+
+
+.harvest-chart { position: relative; }
+.harvest-chart-season { cursor: pointer; }
+.harvest-chart-season:hover rect[opacity],
+.harvest-chart-season:focus rect[opacity] { opacity: 1; }
+.harvest-chart-season:focus { outline: none; }
+.harvest-chart-season:focus rect[opacity] { stroke: #38bdf8; stroke-width: 1.5; }
+.harvest-chart-tooltip {
+    position: absolute;
+    top: 8px;
+    transform: translateX(-50%);
+    width: 240px;
+    max-width: 100%;
+    padding: 14px 16px;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+    z-index: 5;
+    font-size: 13px;
+}
+.harvest-chart-tooltip strong { display: block; margin-bottom: 8px; }
+.harvest-chart-tooltip dl { margin: 0; }
+.harvest-chart-tooltip dl > div { display: flex; justify-content: space-between; gap: 12px; margin-top: 5px; }
+.harvest-chart-tooltip dt { color: #94a3b8; }
+.harvest-chart-tooltip dd { margin: 0; text-align: right; }
+html.theme-light .history-overview .harvest-chart-tooltip { background: #fff; color: #1a2d32; border-color: #cbd5e1; }
+html.theme-light .history-overview .harvest-chart-tooltip dt { color: #64748b; }

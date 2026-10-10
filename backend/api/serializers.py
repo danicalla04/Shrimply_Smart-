@@ -1,4 +1,6 @@
 from rest_framework import serializers
+from django.db import transaction
+from .permissions import set_user_privileges, user_privileges
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from .models import (
@@ -8,23 +10,38 @@ from .models import (
 )
 
 
+class PrivilegesSerializer(serializers.Serializer):
+    create = serializers.BooleanField(default=False)
+    update = serializers.BooleanField(default=False)
+    delete = serializers.BooleanField(default=False)
+
+
 class RegisterSerializer(serializers.ModelSerializer):
+    privileges = PrivilegesSerializer(required=False)
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     password2 = serializers.CharField(write_only=True, required=True, label='Confirm password')
 
     class Meta:
         model = User
-        fields = ('username', 'password', 'password2', 'email', 'first_name', 'last_name')
+        fields = ('username', 'password', 'password2', 'email', 'first_name', 'last_name', 'privileges')
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
             raise serializers.ValidationError({'password': 'Passwords do not match.'})
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
         validated_data.pop('password2')
+        privileges = validated_data.pop('privileges', {})
         user = User.objects.create_user(**validated_data)
+        set_user_privileges(user, privileges)
         return user
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['privileges'] = user_privileges(instance)
+        return data
 
 class SensorReadingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -140,6 +157,15 @@ class HarvestEntrySerializer(serializers.ModelSerializer):
 
 class SeasonSerializer(serializers.ModelSerializer):
     days_active = serializers.SerializerMethodField()
+
+    def validate_name(self, value):
+        name = value.strip()
+        existing = Season.objects.filter(name__iexact=name)
+        if self.instance is not None:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            raise serializers.ValidationError('This season name already exists in the shared pond records.')
+        return name
 
     class Meta:
         model = Season

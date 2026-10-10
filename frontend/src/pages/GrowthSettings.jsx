@@ -1,3 +1,4 @@
+import { usePrivileges } from '../context/PrivilegesContext'
 import React, { useState, useEffect } from 'react';
 import authService from '../services/auth';
 import { EFFECTIVE_API_BASE } from '../services/apiConfig';
@@ -5,6 +6,7 @@ import { EFFECTIVE_API_BASE } from '../services/apiConfig';
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function GrowthSettings() {
+  const privileges = usePrivileges()
   const [seasons, setSeasons] = useState([]);
   const [selectedSeasonId, setSelectedSeasonId] = useState(null);
   const [formData, setFormData] = useState({
@@ -408,7 +410,7 @@ export default function GrowthSettings() {
           <div className="mt-8 flex gap-4">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !privileges.update}
               className="flex-1 px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-slate-400 transition"
             >
               {saving

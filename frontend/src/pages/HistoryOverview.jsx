@@ -1,3 +1,4 @@
+import { usePrivileges } from '../context/PrivilegesContext'
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import * as seasonApi from '../services/seasonBackend'
 import { fetchHistorySettings, updateHistorySettings } from '../services/historySettings'
@@ -34,11 +35,21 @@ const seasonSurvivalPct = (season) => {
 }
 
 // Color palette for charts
+const formatSeasonDate = (value, short = false) => {
+    if (!value) return 'Not recorded'
+    const date = new Date(`${String(value).slice(0, 10)}T12:00:00`)
+    if (Number.isNaN(date.getTime())) return 'Not recorded'
+    return date.toLocaleDateString('en-US', short
+        ? { month: '2-digit', day: '2-digit', year: '2-digit' }
+        : { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 const CHART_COLORS = ['#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#3b82f6', '#14b8a6']
 
 
 
 const HistoryOverview = () => {
+  const privileges = usePrivileges()
     const [seasons, setSeasons] = useState([])
     const [activeSeason, setActiveSeason] = useState(null)
     const [selectedSeasonId, setSelectedSeasonId] = useState(null)
@@ -60,6 +71,7 @@ const HistoryOverview = () => {
     const [expandedSeasonId, setExpandedSeasonId] = useState(null)
     const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null)
     const overviewRef = useRef(null)
+    const [hoveredSeason, setHoveredSeason] = useState(null)
 
 
     const flash = (msg, type = 'success') => {
@@ -426,7 +438,7 @@ const HistoryOverview = () => {
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold">Active Season</h2>
                     {!activeSeason && (
-                        <button onClick={handleStartSeason} disabled={actionLoading}
+                        <button onClick={handleStartSeason} disabled={actionLoading || !privileges.create}
                             className="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500">
                             Start New Season
                         </button>
@@ -446,7 +458,7 @@ const HistoryOverview = () => {
                                         min="1"
                                         max="365"
                                         value={dayDraft}
-                                        disabled={actionLoading}
+                                        disabled={actionLoading || !privileges.update}
                                         aria-label="Current culture day"
                                         className="history-day-input"
                                         onChange={(e) => setDayDraft(e.target.value)}
@@ -459,7 +471,7 @@ const HistoryOverview = () => {
                                         min="1"
                                         max="365"
                                         value={cycleDraft}
-                                        disabled={actionLoading}
+                                        disabled={actionLoading || !privileges.update}
                                         aria-label="Cycle length in days"
                                         className="history-day-input"
                                         onChange={(e) => setCycleDraft(e.target.value)}
@@ -524,9 +536,9 @@ const HistoryOverview = () => {
                                 className="w-full mt-1 rounded-lg bg-white/10 border border-white/20 px-3 py-2" />
                         </div>
                         <div className="flex flex-wrap gap-3 mt-4">
-                            <button type="button" onClick={() => addHarvest(false)} disabled={actionLoading}
+                            <button type="button" onClick={() => addHarvest(false)} disabled={actionLoading || !privileges.create}
                                 className="harvest-action-btn">Add Harvest</button>
-                            <button type="button" onClick={() => addHarvest(true)} disabled={actionLoading}
+                            <button type="button" onClick={() => addHarvest(true)} disabled={actionLoading || !privileges.create || !privileges.update}
                                 className="harvest-action-btn is-all">Harvest All (end season)</button>
                         </div>
                         <p className="text-xs text-slate-400 mt-2">Tip: Harvest needs an amount (&gt; 0). Note is optional.</p>
@@ -539,11 +551,16 @@ const HistoryOverview = () => {
                 <div className="glass-card rounded-2xl p-6 mb-6">
                     <h2 className="text-xl font-bold mb-4">📈 Harvest Yield Comparison</h2>
                     {(() => {
-                        const maxKg = Math.max(...seasons.map(s => s.total_harvest_kg || 0), 1)
+                        const chartSeasons = [...seasons].sort((a, b) =>
+                            (a.start_date || '').localeCompare(b.start_date || '') ||
+                            (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
+                        )
+                        const maxKg = Math.max(...chartSeasons.map(s => s.total_harvest_kg || 0), 1)
                         const barWidth = Math.min(60, Math.max(30, 350 / seasons.length))
                         const chartWidth = Math.max(400, seasons.length * (barWidth + 20) + 80)
                         return (
-                            <div className="overflow-x-auto">
+                            <div className="harvest-chart">
+                                <div className="overflow-x-auto">
                                 <svg viewBox={`0 0 ${chartWidth} 200`} className="w-full" style={{ minHeight: 200 }} preserveAspectRatio="xMidYMid meet">
                                     {/* Y grid lines */}
                                     {[0, 0.25, 0.5, 0.75, 1].map(frac => (
@@ -556,12 +573,22 @@ const HistoryOverview = () => {
                                         </g>
                                     ))}
                                     {/* bars */}
-                                    {seasons.map((s, i) => {
+                                    {chartSeasons.map((s, i) => {
                                         const val = s.total_harvest_kg || 0
                                         const h = (val / maxKg) * 140
                                         const x = 70 + i * (barWidth + 20)
                                         return (
-                                            <g key={s.id}>
+                                            <g key={s.id}
+                                                className="harvest-chart-season"
+                                                tabIndex={0}
+                                                aria-label={`${s.name || 'Season'}: started ${formatSeasonDate(s.start_date)}, ${Number(val).toLocaleString()} kg harvested`}
+                                                onMouseEnter={() => setHoveredSeason({ season: s, left: (x + barWidth / 2) / chartWidth * 100 })}
+                                                onMouseLeave={() => setHoveredSeason(null)}
+                                                onFocus={() => setHoveredSeason({ season: s, left: (x + barWidth / 2) / chartWidth * 100 })}
+                                                onBlur={() => setHoveredSeason(null)}
+                                                onClick={() => setHoveredSeason({ season: s, left: (x + barWidth / 2) / chartWidth * 100 })}
+                                                onKeyDown={event => { if (event.key === 'Escape') setHoveredSeason(null) }}>
+                                                <rect x={x - 8} y="10" width={barWidth + 16} height="175" fill="transparent" />
                                                 <rect
                                                     x={x} y={160 - h} width={barWidth} height={h}
                                                     rx="4" fill={CHART_COLORS[i % CHART_COLORS.length]}
@@ -571,7 +598,7 @@ const HistoryOverview = () => {
                                                     {val > 0 ? `${val.toFixed(0)}kg` : ''}
                                                 </text>
                                                 <text x={x + barWidth / 2} y="175" textAnchor="middle" fill="#94a3b8" fontSize="7">
-                                                    {s.name?.length > 10 ? s.name.slice(0, 10) + '…' : s.name}
+                                                    {formatSeasonDate(s.start_date, true)}
                                                 </text>
                                             </g>
                                         )
@@ -579,6 +606,20 @@ const HistoryOverview = () => {
                                     {/* Y-axis label */}
                                     <text x="10" y="90" fill="#94a3b8" fontSize="8" transform="rotate(-90 10 90)">Harvest (kg)</text>
                                 </svg>
+                                </div>
+                                {hoveredSeason && (
+                                    <div className="harvest-chart-tooltip" role="tooltip"
+                                        style={{ left: `clamp(125px, ${hoveredSeason.left}%, calc(100% - 125px))` }}>
+                                        <strong>{hoveredSeason.season.name || 'Season'}</strong>
+                                        <dl>
+                                            <div><dt>Started</dt><dd>{formatSeasonDate(hoveredSeason.season.start_date)}</dd></div>
+                                            <div><dt>Ended</dt><dd>{hoveredSeason.season.is_active ? 'Ongoing' : formatSeasonDate(hoveredSeason.season.end_date)}</dd></div>
+                                            <div><dt>Total harvest</dt><dd>{Number(hoveredSeason.season.total_harvest_kg || 0).toLocaleString()} kg</dd></div>
+                                            <div><dt>Harvests</dt><dd>{hoveredSeason.season.harvest_count ?? 0}</dd></div>
+                                        </dl>
+                                    </div>
+                                )}
+                                <p className="text-xs text-slate-400">Season start dates ? Hover or tap a season for details.</p>
                             </div>
                         )
                     })()}
@@ -759,7 +800,7 @@ const HistoryOverview = () => {
                                     <span>{formatAmount(e.amount)}</span>
                                     <span>{e.is_all ? <span className="px-2 py-1 rounded bg-blue-600/30 text-blue-700">All</span> : 'Partial'}</span>
                                     <span className="text-slate-400">{e.note || '—'}</span>
-                                    <button type="button" onClick={() => setPendingDeleteEntry(e)}
+                                    <button type="button" disabled={!privileges.delete} onClick={() => setPendingDeleteEntry(e)}
                                         className="season-action-btn is-danger ml-auto">Delete</button>
                                 </div>
                             )
@@ -896,7 +937,7 @@ const HistoryOverview = () => {
                             <button type="button" className="season-action-btn is-close" onClick={() => setPendingDeleteEntry(null)} disabled={actionLoading}>
                                 Cancel
                             </button>
-                            <button type="button" className="season-action-btn is-danger" onClick={handleDeleteEntry} disabled={actionLoading}>
+                            <button type="button" className="season-action-btn is-danger" onClick={handleDeleteEntry} disabled={actionLoading || !privileges.delete}>
                                 {actionLoading ? 'Deleting...' : 'Delete'}
                             </button>
                         </div>

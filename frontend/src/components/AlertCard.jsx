@@ -1,8 +1,10 @@
+import { usePrivileges } from '../context/PrivilegesContext'
 import CloseButton from './CloseButton'
 import { useLanguage } from '../context/LanguageContext'
 
 const AlertCard = ({ title, message, type, timestamp, isRead, onMarkAsRead, onDismiss }) => {
   const { t } = useLanguage()
+  const privileges = usePrivileges()
   const alertClasses = {
     critical: 'alert-critical',
     warning: 'alert-warning',
@@ -29,18 +31,18 @@ const AlertCard = ({ title, message, type, timestamp, isRead, onMarkAsRead, onDi
         <div className="flex items-center space-x-2">
           {!isRead && (
             <button
-              onClick={onMarkAsRead}
+              disabled={!privileges.update} onClick={onMarkAsRead}
               className="btn-secondary text-xs px-3 py-1"
             >
               {t('markAsRead')}
             </button>
           )}
-          <CloseButton
+          {privileges.delete && <CloseButton
             onClick={onDismiss}
             size="md"
             variant="default"
   q           title="Delete"
-          />
+          />}
         </div>
       </div>
     </div>

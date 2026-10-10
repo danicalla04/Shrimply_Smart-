@@ -1,3 +1,4 @@
+from .permissions import AccountPrivileges, user_privileges
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -1060,7 +1061,7 @@ class ReportPagination(PageNumberPagination):
 
 class ReportViewSet(viewsets.ModelViewSet):
     serializer_class = ReportSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AccountPrivileges]
     pagination_class = ReportPagination
 
     def get_queryset(self):
@@ -1133,10 +1134,7 @@ class ReportViewSet(viewsets.ModelViewSet):
         season_id = request.data.get('season_id')
         if not season_id:
             return Response({'error': 'season_id is required'}, status=400)
-        season = Season.objects.filter(id=season_id, user=request.user).first()
-        if not season:
-            # Allow staff / shared seasons without user filter as fallback
-            season = Season.objects.filter(id=season_id).first()
+        season = Season.objects.filter(id=season_id).first()
         if not season:
             return Response({'error': 'Season not found'}, status=404)
 

@@ -2,8 +2,11 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
 from .views_reports import ReportViewSet
+from .views_logs import ActivityLogViewSet, UserAccountViewSet, account_access
 
 router = DefaultRouter()
+router.register(r'activity-logs', ActivityLogViewSet, basename='activity-log')
+router.register(r'accounts', UserAccountViewSet, basename='account')
 router.register(r'sensors', views.SensorReadingViewSet)
 router.register(r'thresholds', views.ThresholdViewSet)
 router.register(r'calibration', views.SensorCalibrationViewSet, basename='calibration')
@@ -20,6 +23,7 @@ router.register(r'growth-metrics', views.DailyGrowthMetricViewSet, basename='gro
 router.register(r'growth-predictions', views.GrowthPredictionViewSet, basename='growthprediction')
 
 urlpatterns = [
+    path('account-access/', account_access, name='account-access'),
     path('', include(router.urls)),
     path('update-sensors/', views.update_sensors, name='update_sensors'),
     path('update-feeder-telemetry/', views.update_feeder_telemetry, name='update_feeder_telemetry'),

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
+import { PrivilegesProvider } from '../context/PrivilegesContext'
 import PageLoader from './PageLoader'
 import { applyTheme, getStoredTheme } from '../services/theme'
 
@@ -63,6 +64,7 @@ const DashboardLayout = ({ children }) => {
   }
 
   return (
+    <PrivilegesProvider>
     <div className={`aq-shell ${mobileOpen ? 'nav-open' : ''} ${collapsed ? 'nav-collapsed' : ''}`}>
       {mobileOpen ? <button type="button" className="aq-overlay" aria-label="Close menu" onClick={() => setMobileOpen(false)} /> : null}
       <Sidebar
@@ -123,6 +125,7 @@ const DashboardLayout = ({ children }) => {
         </div>
       </div>
     </div>
+    </PrivilegesProvider>
   )
 }
 

@@ -1,3 +1,4 @@
+import { usePrivileges } from '../context/PrivilegesContext'
 import { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { useLanguage } from '../context/LanguageContext';
@@ -21,8 +22,9 @@ import { getChannelsWebSocketUrl } from '../services/apiConfig';
 import { alertWebSocket } from '../services/alertWebSocket';
 
 function Toggle({ checked, onChange, label }) {
+  const privileges = usePrivileges()
   return (
-    <button
+    <button disabled={!privileges.update}
       type="button"
       onClick={() => onChange(!checked)}
       className="relative inline-flex h-9 w-16 shrink-0 items-center rounded-full transition-all focus:outline-none"
@@ -66,6 +68,7 @@ function useInterval(callback, delay) {
 }
 
 export default function Feeding() {
+  const privileges = usePrivileges()
   const { t } = useLanguage();
   const [state, setState] = useState(() => DEFAULT_FEEDER_STATE);
   const [now, setNow] = useState(Date.now());
@@ -625,14 +628,15 @@ export default function Feeding() {
 
   // Migration: remove legacy 'adaptive' schedule type.
   useEffect(() => {
-    if (state.scheduleType !== 'adaptive') return;
+    if (!privileges.update || state.scheduleType !== 'adaptive') return;
     updateFeederSettings({ schedule_type: 'interval' })
       .then((updated) => setState(updated))
       .catch((error) => console.error('Failed to migrate schedule type:', error));
-  }, [state.scheduleType]);
+  }, [state.scheduleType, privileges.update]);
   // Tick every 30 seconds: update time and process auto feed events
   useInterval(async () => {
     setNow(Date.now());
+    if (!privileges.update) return;
     try {
       const updatedState = await processAutoFeedTick();
       if (updatedState && updatedState.id) {
@@ -791,7 +795,7 @@ export default function Feeding() {
               <button
                 key={time}
                 type="button"
-                onClick={() => openSlotEditor(time)}
+                disabled={!privileges.update} onClick={() => openSlotEditor(time)}
                 className="rounded-lg border border-cyan-400/15 bg-slate-950/40 p-3 text-center hover:border-cyan-300/40 transition-all"
                 title="Click to view/edit this feeding time"
               >
@@ -817,7 +821,7 @@ export default function Feeding() {
               <p className="text-red-50 text-base">{t('feedStorageEmptyMsg') || 'Your feed storage is empty. Please refill the feeder to continue automatic feeding.'}</p>
             </div>
             <button
-              onClick={async () => {
+              disabled={!privileges.update} onClick={async () => {
                 try {
                   const updatedState = await refillFeeder();
                   setState(updatedState);
@@ -878,7 +882,7 @@ export default function Feeding() {
                     </span>
                     <Toggle
                       checked={state.autoEnabled !== false && state.auto_enabled !== false}
-                      onChange={async (value) => {
+                      disabled={!privileges.update} onChange={async (value) => {
                         try {
                           const updatedState = await toggleAutoFeeding(value);
                           setState(updatedState);
@@ -959,7 +963,7 @@ export default function Feeding() {
                       if (servoState !== 'ON') return;
                       finishDummyServo();
                     }}
-                    disabled={servoLoading || servoState !== 'ON'}
+                    disabled={!privileges.update || servoLoading || servoState !== 'ON'}
                   >
                     {servoLoading && servoState === 'ON' ? (
                       <>
@@ -979,7 +983,7 @@ export default function Feeding() {
                       if (servoState === 'ON') return;
                       startDummyServo();
                     }}
-                    disabled={servoLoading || servoState === 'ON'}
+                    disabled={!privileges.update || servoLoading || servoState === 'ON'}
                   >
                     {servoLoading && servoState !== 'ON' ? (
                       <>
@@ -1030,7 +1034,7 @@ export default function Feeding() {
                   <select
                     className="w-full border-2 border-blue-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all bg-white"
                     value={effectiveScheduleType}
-                    onChange={async (e) => {
+                    disabled={!privileges.update} onChange={async (e) => {
                       try {
                         const updatedState = await updateFeederSettings({ schedule_type: e.target.value });
                         setState(updatedState);
@@ -1052,7 +1056,7 @@ export default function Feeding() {
                         type="number"
                         className="w-full border-2 border-blue-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                         value={state.intervalMinutes || 60}
-                        onChange={async (e) => {
+                        disabled={!privileges.update} onChange={async (e) => {
                           try {
                             const minutes = Math.max(1, Number(e.target.value || 1));
                             const updatedState = await updateFeederSettings({ interval_minutes: minutes });
@@ -1072,7 +1076,7 @@ export default function Feeding() {
                         step="0.01"
                         className="w-full border-2 border-blue-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                         value={gramsToKgInput(state.portionGrams || 50)}
-                        onChange={async (e) => {
+                        disabled={!privileges.update} onChange={async (e) => {
                           try {
                             const grams = kgInputToGrams(e.target.value);
                             const updatedState = await updateFeederSettings({ portion_grams: grams });
@@ -1096,7 +1100,7 @@ export default function Feeding() {
                         step="0.01"
                         className="w-full border-2 border-blue-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
                         value={gramsToKgInput(state.portionGrams || 50)}
-                        onChange={async (e) => {
+                        disabled={!privileges.update} onChange={async (e) => {
                           try {
                             const grams = kgInputToGrams(e.target.value);
                             const updatedState = await updateFeederSettings({ portion_grams: grams });
@@ -1117,7 +1121,7 @@ export default function Feeding() {
                         className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
                       />
                       <button
-                        onClick={async () => {
+                        disabled={!privileges.update} onClick={async () => {
                           try {
                             const currentTimes = (state.dailySchedule || []).filter(ti => ti && ti.trim());
                             const next = newDailyTime;
@@ -1148,7 +1152,7 @@ export default function Feeding() {
                           <div key={timeStr} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 gap-2">
                             <button
                               type="button"
-                              onClick={() => openSlotEditor(timeStr)}
+                              disabled={!privileges.update} onClick={() => openSlotEditor(timeStr)}
                               className="flex-1 text-left font-semibold text-slate-800 hover:text-blue-700"
                             >
                               ⏰ {timeStr}
@@ -1158,7 +1162,7 @@ export default function Feeding() {
                               <span className="ml-2 text-xs text-blue-600 font-medium">Edit</span>
                             </button>
                             <button
-                              onClick={async () => {
+                              disabled={!privileges.update} onClick={async () => {
                                 try {
                                   const newSchedule = (state.dailySchedule || []).filter(ti => ti !== timeStr);
                                   let plan = todayPlan ? { ...todayPlan, slots_kg: { ...(todayPlan.slots_kg || {}) } } : null;
@@ -1213,7 +1217,7 @@ export default function Feeding() {
                   <button
                     type="button"
                     onClick={() => useAsTodayFeed()}
-                    disabled={mlApplying}
+                    disabled={mlApplying || !privileges.update}
                     className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60"
                   >
                     {mlApplying ? 'Saving…' : "Use as today's feed"}
@@ -1273,7 +1277,7 @@ export default function Feeding() {
                       <button
                         key={time}
                         type="button"
-                        onClick={() => openSlotEditor(time)}
+                        disabled={!privileges.update} onClick={() => openSlotEditor(time)}
                         className="p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-center hover:brightness-110"
                         title="Click to edit time / kg"
                       >
@@ -1310,7 +1314,7 @@ export default function Feeding() {
                     step="0.01"
                     className="w-full border-2 border-indigo-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all"
                     value={gramsToKgInput(state.portionGrams || state.portion_grams)}
-                    onChange={async (e) => {
+                    disabled={!privileges.update} onChange={async (e) => {
                       try {
                         const grams = kgInputToGrams(e.target.value);
                         const updatedState = await updateFeederSettings({ portion_grams: grams });
@@ -1338,7 +1342,7 @@ export default function Feeding() {
                         <input
                           type="time"
                           defaultValue={timeStr}
-                          onBlur={async (e) => {
+                          disabled={!privileges.update} onBlur={async (e) => {
                             const next = e.target.value;
                             if (!next || next === timeStr) return;
                             try {
@@ -1469,7 +1473,7 @@ export default function Feeding() {
               </button>
               <button
                 type="button"
-                onClick={saveSlotEditor}
+                disabled={!privileges.update} onClick={saveSlotEditor}
                 className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold"
               >
                 Save

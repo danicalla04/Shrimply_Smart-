@@ -1,3 +1,376 @@
-from django.test import TestCase
+from django.contrib.auth.models import User
+from django.urls import reverse
+from rest_framework.test import APITestCase
 
-# Create your tests here.
+
+class AccountCreationTests(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user('account_admin', password='Admin-Example-7482', is_staff=True)
+        self.member = User.objects.create_user('account_member', password='Member-Example-7482')
+        self.payload = {
+            'username': 'invited_user',
+            'password': 'Invited-Example-7482',
+            'password2': 'Invited-Example-7482',
+            'email': 'invited@example.com',
+        }
+
+    def test_public_signup_is_denied(self):
+        response = self.client.post(reverse('register'), self.payload)
+        self.assertIn(response.status_code, (401, 403))
+        self.assertFalse(User.objects.filter(username='invited_user').exists())
+
+    def test_regular_user_cannot_create_accounts(self):
+        self.client.force_authenticate(self.member)
+        response = self.client.post(reverse('register'), self.payload)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(User.objects.filter(username='invited_user').exists())
+
+    def test_admin_creates_regular_account_without_changing_identity(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(reverse('register'), {**self.payload, 'is_staff': True, 'is_superuser': True})
+        self.assertEqual(response.status_code, 201)
+        user = User.objects.get(username='invited_user')
+        self.assertTrue(user.check_password(self.payload['password']))
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertNotIn('password', response.data)
+        self.assertEqual(self.client.get(reverse('current_user')).data, {'username': 'account_admin', 'is_admin': True, 'privileges': {'create': True, 'update': True, 'delete': True}})
+
+    def test_duplicate_username_and_mismatched_passwords_are_rejected(self):
+        self.client.force_authenticate(self.admin)
+        for payload in [
+            {**self.payload, 'username': self.member.username},
+            {**self.payload, 'password2': 'different-password'},
+        ]:
+            self.assertEqual(self.client.post(reverse('register'), payload).status_code, 400)
+        self.assertFalse(User.objects.filter(username='invited_user').exists())
+
+    def test_profile_requires_login_and_reports_regular_user(self):
+        self.assertIn(self.client.get(reverse('current_user')).status_code, (401, 403))
+        self.client.force_authenticate(self.member)
+        self.assertEqual(self.client.get(reverse('current_user')).data, {'username': 'account_member', 'is_admin': False, 'privileges': {'create': False, 'update': False, 'delete': False}})
+
+
+class AccountPrivilegeTests(APITestCase):
+    def setUp(self):
+        from .models import Season
+        self.user = User.objects.create_user('privilege_member', password='Member-Example-9482')
+        self.admin = User.objects.create_user('privilege_admin', password='Admin-Example-9482', is_staff=True)
+        self.season = Season.objects.create(user=self.user, name='S1', start_date='2026-01-01')
+        self.client.force_authenticate(self.user)
+
+    def grant(self, **privileges):
+        from .permissions import set_user_privileges
+        set_user_privileges(self.user, privileges)
+
+    def test_read_only_can_read_but_cannot_mutate_or_control(self):
+        self.assertEqual(self.client.get('/api/seasons/').status_code, 200)
+        for method, url in [
+            ('post', '/api/seasons/start/'),
+            ('patch', f'/api/seasons/{self.season.pk}/'),
+            ('delete', f'/api/seasons/{self.season.pk}/'),
+            ('post', '/api/thresholds/update_all/'),
+            ('post', '/api/feeder/servo_on/'),
+            ('post', '/api/buzzer/control/'),
+            ('post', '/api/reports/generate_daily/'),
+            ('get', '/api/feeder/process_auto_feed/'),
+        ]:
+            with self.subTest(url=url):
+                self.assertEqual(getattr(self.client, method)(url, {}, format='json').status_code, 403)
+
+    def test_update_does_not_grant_create_or_delete(self):
+        self.grant(update=True)
+        url = f'/api/seasons/{self.season.pk}/'
+        self.assertEqual(self.client.patch(url, {'notes': 'Updated'}, format='json').status_code, 200)
+        self.assertEqual(self.client.post('/api/seasons/start/', {}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(url).status_code, 403)
+
+    def test_create_does_not_grant_update_or_delete(self):
+        self.grant(create=True)
+        response = self.client.post('/api/seasons/', {'name': 'S2', 'start_date': '2026-02-01'}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        url = f'/api/seasons/{self.season.pk}/'
+        self.assertEqual(self.client.patch(url, {'notes': 'Forbidden'}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(url).status_code, 403)
+        self.assertEqual(self.client.post(f'{url}add_entry/', {'is_all': True}, format='json').status_code, 403)
+        self.assertEqual(self.client.post('/api/feeder/servo_on/', {}, format='json').status_code, 403)
+        self.assertEqual(self.client.post(reverse('register'), {}, format='json').status_code, 403)
+
+    def test_delete_does_not_grant_create_or_update(self):
+        self.grant(delete=True)
+        url = f'/api/seasons/{self.season.pk}/'
+        self.assertEqual(self.client.patch(url, {'notes': 'Forbidden'}, format='json').status_code, 403)
+        self.assertEqual(self.client.post('/api/seasons/', {}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(url).status_code, 204)
+
+    def test_admin_can_assign_privileges_and_default_is_read_only(self):
+        self.client.force_authenticate(self.admin)
+        base = {'password': 'Invited-Example-9482', 'password2': 'Invited-Example-9482'}
+        response = self.client.post(reverse('register'), {**base, 'username': 'create_and_update', 'privileges': {'create': True, 'update': True}}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.client.force_authenticate(User.objects.get(username='create_and_update'))
+        self.assertEqual(self.client.get(reverse('current_user')).data['privileges'], {'create': True, 'update': True, 'delete': False})
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(reverse('register'), {**base, 'username': 'viewer_only'}, format='json')
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data['privileges'], {'create': False, 'update': False, 'delete': False})
+
+
+class ActivityLogTests(APITestCase):
+    def setUp(self):
+        from .models import Season
+        from .permissions import set_user_privileges
+        self.admin = User.objects.create_user('log_admin', password='Admin-Example-3482', is_staff=True)
+        self.member = User.objects.create_user('log_member', password='Member-Example-3482')
+        set_user_privileges(self.member, {'create': True, 'update': True, 'delete': True})
+        self.season = Season.objects.create(user=self.member, name='Original season', start_date='2026-01-01')
+        self.client.force_authenticate(self.member)
+
+    def test_create_update_delete_keep_actor_and_before_after(self):
+        from .models import ActivityLog
+        response = self.client.post('/api/seasons/', {'name': 'New season', 'start_date': '2026-02-01'}, format='json')
+        self.assertEqual(response.status_code, 201)
+        created = ActivityLog.objects.get(action='create', record_id=str(response.data['id']), resource='season')
+        self.assertEqual(created.username, 'log_member')
+        self.assertEqual(created.privileges, {'create': True, 'update': True, 'delete': True})
+        url = f'/api/seasons/{self.season.pk}/'
+        self.assertEqual(self.client.patch(url, {'name': 'Renamed season'}, format='json').status_code, 200)
+        updated = ActivityLog.objects.get(action='update', record_id=str(self.season.pk), resource='season')
+        self.assertIn({'field': 'name', 'before': 'Original season', 'after': 'Renamed season'}, updated.changes)
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        deleted = ActivityLog.objects.get(action='delete', record_id=str(self.season.pk), resource='season')
+        self.assertEqual(deleted.record_label, 'Renamed season')
+        self.assertIn({'field': 'name', 'before': 'Renamed season', 'after': None}, deleted.changes)
+
+    def test_logs_and_account_privileges_are_admin_only(self):
+        for url in ['/api/activity-logs/', '/api/account-access/']:
+            self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.force_authenticate(None)
+        for url in ['/api/activity-logs/', '/api/account-access/']:
+            self.assertIn(self.client.get(url).status_code, (401, 403))
+        self.client.force_authenticate(self.admin)
+        for url in ['/api/activity-logs/', '/api/account-access/']:
+            self.assertEqual(self.client.get(url).status_code, 200)
+        self.assertEqual(self.client.post('/api/activity-logs/', {}, format='json').status_code, 405)
+
+    def test_account_creation_records_privileges_but_no_passwords(self):
+        import json
+        from .models import ActivityLog
+        self.client.force_authenticate(self.admin)
+        password = 'Private-Example-6482'
+        response = self.client.post(reverse('register'), {'username': 'logged_invitation', 'password': password, 'password2': password, 'privileges': {'create': True}}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        entry = ActivityLog.objects.get(resource='user', record_id=str(User.objects.get(username='logged_invitation').pk))
+        self.assertEqual(entry.username, 'log_admin')
+        self.assertEqual(entry.action, 'create')
+        self.assertIn({'field': 'privileges', 'before': None, 'after': {'create': True, 'update': False, 'delete': False}}, entry.changes)
+        stored = json.dumps(entry.changes)
+        self.assertNotIn(password, stored)
+        self.assertNotIn('password', stored)
+        self.assertNotIn('pbkdf2', stored)
+
+    def test_failed_requests_do_not_create_activity(self):
+        from .models import ActivityLog
+        self.assertEqual(self.client.patch(f'/api/seasons/{self.season.pk}/', {'start_date': 'invalid-date'}, format='json').status_code, 400)
+        self.assertFalse(ActivityLog.objects.exists())
+
+    def test_bulk_season_update_is_recorded(self):
+        from .models import ActivityLog
+        response = self.client.post(f'/api/seasons/{self.season.pk}/add_entry/', {'date': '2026-03-01', 'amount': 200, 'unit': 'kg', 'is_all': True}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        entry = ActivityLog.objects.get(resource='season', record_id=str(self.season.pk), action='update')
+        self.assertIn({'field': 'is_active', 'before': True, 'after': False}, entry.changes)
+        self.assertTrue(ActivityLog.objects.filter(resource='harvest entry', action='create', username='log_member').exists())
+
+    def test_admin_filters_logs_and_cannot_edit_or_delete_them(self):
+        from .models import ActivityLog
+        self.client.patch(f'/api/seasons/{self.season.pk}/', {'notes': 'Tracked change'}, format='json')
+        self.client.force_authenticate(self.admin)
+        response = self.client.get('/api/activity-logs/?action=update&username=log_member&search=Original')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 1)
+        entry = ActivityLog.objects.get()
+        self.assertEqual(self.client.patch(f'/api/activity-logs/{entry.pk}/', {}, format='json').status_code, 405)
+        self.assertEqual(self.client.delete(f'/api/activity-logs/{entry.pk}/').status_code, 405)
+
+    def test_log_keeps_username_when_actor_is_deleted(self):
+        from .models import ActivityLog
+        self.client.patch(f'/api/seasons/{self.season.pk}/', {'notes': 'Tracked change'}, format='json')
+        entry = ActivityLog.objects.get(resource='season', action='update')
+        self.member.delete()
+        entry.refresh_from_db()
+        self.assertIsNone(entry.actor)
+        self.assertEqual(entry.username, 'log_member')
+
+
+    def test_sensor_record_creation_is_logged(self):
+        from .models import ActivityLog
+        response = self.client.post('/api/sensors/', {'temperature': 29, 'ph': 7.5, 'turbidity': 10, 'tds': 800}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(ActivityLog.objects.filter(resource='sensor reading', action='create', username='log_member').exists())
+
+    def test_jwt_user_is_identified_by_audit_middleware(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+        from .models import ActivityLog
+        self.client.force_authenticate(None)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(self.member)}')
+        response = self.client.patch(f'/api/seasons/{self.season.pk}/', {'notes': 'JWT actor change'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ActivityLog.objects.get().username, 'log_member')
+
+
+class SharedPondRecordTests(APITestCase):
+    def setUp(self):
+        from .models import Season, HarvestEntry, DailyGrowthMetric
+        self.admin = User.objects.create_user('pond_admin', password='Admin-Example-5482', is_staff=True)
+        self.member = User.objects.create_user('pond_member', password='Member-Example-5482')
+        self.season = Season.objects.create(user=self.admin, name='Shared S1', start_date='2026-01-01', is_active=True)
+        self.harvest = HarvestEntry.objects.create(season=self.season, date='2026-02-01', amount=200, unit='kg')
+        self.metric = DailyGrowthMetric.objects.create(season=self.season, date='2026-01-02', shrimp_count=1000, avg_weight_grams=8)
+        self.client.force_authenticate(self.member)
+
+    def grant(self, **privileges):
+        from .permissions import set_user_privileges
+        set_user_privileges(self.member, privileges)
+
+    def test_viewer_reads_shared_season_harvest_and_growth(self):
+        response = self.client.get('/api/seasons/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row['id'] for row in response.data], [self.season.pk])
+        self.assertEqual(self.client.get('/api/seasons/current/').data['id'], self.season.pk)
+        for url in [f'/api/seasons/{self.season.pk}/', f'/api/harvest-entries/{self.harvest.pk}/', f'/api/growth-metrics/{self.metric.pk}/', f'/api/seasons/{self.season.pk}/growth_predictions/']:
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+        self.assertEqual(self.client.patch(f'/api/seasons/{self.season.pk}/', {'notes': 'Forbidden'}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/harvest-entries/{self.harvest.pk}/').status_code, 403)
+        self.assertEqual(self.client.get('/api/activity-logs/').status_code, 403)
+
+    def test_writer_updates_admin_record_and_log_identifies_actual_actor(self):
+        from .models import ActivityLog
+        self.grant(update=True)
+        response = self.client.patch(f'/api/seasons/{self.season.pk}/', {'notes': 'Changed by member'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.season.refresh_from_db()
+        self.assertEqual(self.season.user, self.admin)
+        self.assertEqual(self.season.notes, 'Changed by member')
+        entry = ActivityLog.objects.get(resource='season', action='update')
+        self.assertEqual(entry.username, self.member.username)
+        self.assertEqual(self.client.delete(f'/api/seasons/{self.season.pk}/').status_code, 403)
+
+    def test_create_and_delete_privileges_work_on_shared_harvest(self):
+        self.grant(create=True)
+        response = self.client.post(f'/api/seasons/{self.season.pk}/add_entry/', {'date': '2026-02-02', 'amount': 50, 'unit': 'kg'}, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.season.refresh_from_db()
+        self.assertEqual(self.season.total_harvest_kg, 250)
+        self.assertEqual(self.client.delete(f'/api/harvest-entries/{self.harvest.pk}/').status_code, 403)
+        self.grant(delete=True)
+        self.assertEqual(self.client.delete(f'/api/harvest-entries/{self.harvest.pk}/').status_code, 204)
+        self.season.refresh_from_db()
+        self.assertEqual(self.season.total_harvest_kg, 50)
+
+    def test_starting_shared_season_updates_existing_active_season_and_is_audited(self):
+        from .models import ActivityLog
+        self.grant(create=True)
+        payload = {'name': 'Shared S2', 'start_date': '2026-03-01'}
+        self.assertEqual(self.client.post('/api/seasons/start/', payload, format='json').status_code, 403)
+        self.grant(create=True, update=True)
+        response = self.client.post('/api/seasons/start/', payload, format='json')
+        self.assertEqual(response.status_code, 201, response.data)
+        self.season.refresh_from_db()
+        self.assertFalse(self.season.is_active)
+        entry = ActivityLog.objects.get(resource='season', record_id=str(self.season.pk), action='update')
+        self.assertEqual(entry.username, self.member.username)
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.get('/api/seasons/current/').data['id'], response.data['id'])
+
+    def test_duplicate_season_names_are_rejected_across_creators(self):
+        self.grant(create=True, update=True)
+        payload = {'name': 'shared s1', 'start_date': '2026-03-01'}
+        for url in ['/api/seasons/', '/api/seasons/start/']:
+            self.assertEqual(self.client.post(url, payload, format='json').status_code, 400)
+        self.season.refresh_from_db()
+        self.assertTrue(self.season.is_active)
+
+
+class AccountManagementTests(APITestCase):
+    def setUp(self):
+        from .models import Season, HarvestEntry, SeasonHistory
+        from .permissions import set_user_privileges
+        self.admin = User.objects.create_user('manager_admin', password='Admin-Example-8482', is_staff=True)
+        self.member = User.objects.create_user('managed_member', password='Member-Example-8482', email='old@example.com')
+        set_user_privileges(self.member, {'create': True, 'update': True, 'delete': True})
+        self.season = Season.objects.create(user=self.member, name='Preserved season', start_date='2026-01-01')
+        self.harvest = HarvestEntry.objects.create(season=self.season, date='2026-02-01', amount=200, unit='kg')
+        self.history = SeasonHistory.objects.create(user=self.member, season_name=self.season.name, start_date='2026-01-01')
+        self.client.force_authenticate(self.admin)
+        self.url = f'/api/accounts/{self.member.pk}/'
+
+    def test_admin_edits_profile_and_privileges_with_audit_details(self):
+        from .models import ActivityLog
+        response = self.client.patch(self.url, {'username': 'renamed_member', 'first_name': 'Dan', 'last_name': 'Updated', 'email': 'new@example.com', 'privileges': {'create': False, 'update': True, 'delete': False}}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['email'], 'new@example.com')
+        self.assertEqual(response.data['name'], 'Dan Updated')
+        self.assertEqual(response.data['privileges'], {'create': False, 'update': True, 'delete': False})
+        self.member.refresh_from_db()
+        self.assertTrue(self.member.check_password('Member-Example-8482'))
+        self.assertFalse(self.member.is_staff)
+        entry = ActivityLog.objects.get(resource='user', record_id=str(self.member.pk), action='update')
+        self.assertEqual(entry.username, self.admin.username)
+        self.assertIn({'field': 'email', 'before': 'old@example.com', 'after': 'new@example.com'}, entry.changes)
+        self.assertIn({'field': 'privileges', 'before': {'create': True, 'update': True, 'delete': True}, 'after': {'create': False, 'update': True, 'delete': False}}, entry.changes)
+
+    def test_regular_users_and_anonymous_cannot_manage_accounts(self):
+        self.client.force_authenticate(self.member)
+        for method in ['get', 'patch', 'delete']:
+            self.assertEqual(getattr(self.client, method)(self.url, {}, format='json').status_code, 403)
+        self.client.force_authenticate(None)
+        self.assertIn(self.client.patch(self.url, {}, format='json').status_code, (401, 403))
+
+    def test_revoking_privileges_blocks_existing_account(self):
+        response = self.client.patch(self.url, {'privileges': {'create': False, 'update': False, 'delete': False}}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.client.force_authenticate(self.member)
+        self.assertEqual(self.client.get('/api/seasons/').status_code, 200)
+        self.assertEqual(self.client.patch(f'/api/seasons/{self.season.pk}/', {'notes': 'Forbidden'}, format='json').status_code, 403)
+        self.assertEqual(self.client.delete(f'/api/harvest-entries/{self.harvest.pk}/').status_code, 403)
+
+    def test_account_deletion_preserves_pond_records_and_activity(self):
+        from .models import ActivityLog, HarvestEntry
+        self.client.force_authenticate(self.member)
+        self.client.patch(f'/api/seasons/{self.season.pk}/', {'notes': 'Before deleting user'}, format='json')
+        old_log = ActivityLog.objects.get(resource='season', action='update')
+        self.client.force_authenticate(self.admin)
+        member_id = self.member.pk
+        self.assertEqual(self.client.delete(self.url).status_code, 204)
+        self.assertFalse(User.objects.filter(pk=member_id).exists())
+        self.season.refresh_from_db()
+        self.history.refresh_from_db()
+        old_log.refresh_from_db()
+        self.assertIsNone(self.season.user_id)
+        self.assertIsNone(self.history.user_id)
+        self.assertTrue(HarvestEntry.objects.filter(pk=self.harvest.pk).exists())
+        self.assertIsNone(old_log.actor_id)
+        self.assertEqual(old_log.username, 'managed_member')
+        deleted = ActivityLog.objects.get(resource='user', record_id=str(member_id), action='delete')
+        self.assertEqual(deleted.username, self.admin.username)
+        self.assertEqual(deleted.record_label, 'managed_member')
+        self.assertEqual(self.client.get(f'/api/seasons/{self.season.pk}/').status_code, 200)
+
+    def test_self_deletion_deactivation_and_role_changes_are_blocked(self):
+        url = f'/api/accounts/{self.admin.pk}/'
+        self.assertEqual(self.client.delete(url).status_code, 400)
+        self.assertEqual(self.client.patch(url, {'is_active': False}, format='json').status_code, 400)
+        self.assertEqual(self.client.patch(url, {'privileges': {'create': False}}, format='json').status_code, 400)
+        self.assertEqual(self.client.patch(self.url, {'is_staff': True}, format='json').status_code, 400)
+        self.member.refresh_from_db()
+        self.assertFalse(self.member.is_staff)
+        current = next(row for row in self.client.get('/api/account-access/').data if row['id'] == self.admin.pk)
+        self.assertTrue(current['is_current_user'])
+
+    def test_invalid_email_and_duplicate_username_are_rejected(self):
+        for changes in [{'email': 'invalid-email'}, {'username': self.admin.username}]:
+            self.assertEqual(self.client.patch(self.url, changes, format='json').status_code, 400)
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.email, 'old@example.com')
+        self.assertEqual(self.member.username, 'managed_member')

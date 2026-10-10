@@ -731,7 +731,7 @@ class Report(models.Model):
 
 class Season(models.Model):
     """Represents a grow-out / harvest cycle."""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='seasons')
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='seasons')
     name = models.CharField(max_length=100)
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)
@@ -817,7 +817,7 @@ class HarvestEntry(models.Model):
 
 class SeasonHistory(models.Model):
     """Read-only summary snapshot created when a season ends."""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='season_history')
+    user = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='season_history')
     season_name = models.CharField(max_length=100)
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)
@@ -1038,3 +1038,19 @@ class HistorySettings(models.Model):
 
     def __str__(self):
         return f"HistorySettings for {self.user.username}"
+
+
+class ActivityLog(models.Model):
+    actor = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='activity_logs')
+    username = models.CharField(max_length=150)
+    privileges = models.JSONField(default=dict)
+    action = models.CharField(max_length=10, choices=[('create', 'Create'), ('update', 'Update'), ('delete', 'Delete')])
+    resource = models.CharField(max_length=100)
+    record_id = models.CharField(max_length=100, blank=True)
+    record_label = models.CharField(max_length=255, blank=True)
+    changes = models.JSONField(default=list)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-occurred_at', '-id']
+        indexes = [models.Index(fields=['action', 'occurred_at']), models.Index(fields=['username', 'occurred_at'])]

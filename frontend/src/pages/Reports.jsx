@@ -1,3 +1,4 @@
+import { usePrivileges } from '../context/PrivilegesContext'
 import { useState, useEffect, useCallback } from 'react'
 import { Line, Bar } from 'react-chartjs-2'
 import {
@@ -72,6 +73,7 @@ const SummaryCard = ({ icon, label, value, unit, min, max, colorClass }) => (
 
 /* ─── main component ───────────────────────────────────────────── */
 const Reports = () => {
+  const privileges = usePrivileges()
   const { t } = useLanguage()
 
   /* ── state ─────────────────────────────────────────────────── */
@@ -641,19 +643,19 @@ const Reports = () => {
         <div>
           <h3 className="text-sm font-medium text-slate-600 mb-3">{t('quickReportGeneration')}</h3>
           <div className="flex flex-wrap gap-3">
-            <button onClick={() => handleGenerateReport('daily')} disabled={generating}
+            <button onClick={() => handleGenerateReport('daily')} disabled={!privileges.create || generating}
               className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium">
               {generating ? <span className="animate-spin">⏳</span> : '📅'} {t('dailyReport')}
             </button>
-            <button onClick={() => handleGenerateReport('weekly')} disabled={generating}
+            <button onClick={() => handleGenerateReport('weekly')} disabled={!privileges.create || generating}
               className="px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium">
               {generating ? <span className="animate-spin">⏳</span> : '📊'} {t('weeklyReport')}
             </button>
-            <button onClick={() => handleGenerateReport('monthly')} disabled={generating}
+            <button onClick={() => handleGenerateReport('monthly')} disabled={!privileges.create || generating}
               className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium">
               {generating ? <span className="animate-spin">⏳</span> : '📈'} {t('monthlyReport')}
             </button>
-            <button onClick={() => handleGenerateReport('seasonal')} disabled={generating}
+            <button onClick={() => handleGenerateReport('seasonal')} disabled={!privileges.create || generating}
               className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm font-medium">
               {generating ? <span className="animate-spin">⏳</span> : '🦐'} Seasonal Report
             </button>
@@ -672,7 +674,7 @@ const Reports = () => {
               <label className="block text-xs text-slate-600 mb-1">End Date</label>
               <DatePickerField value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
             </div>
-            <button onClick={() => handleGenerateReport('custom')} disabled={generating || !customStart || !customEnd}
+            <button onClick={() => handleGenerateReport('custom')} disabled={!privileges.create || generating || !customStart || !customEnd}
               className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
               Generate Custom
             </button>
@@ -697,7 +699,7 @@ const Reports = () => {
               📄 {t('generatePDFReport')}
             </button>
             <button onClick={() => { if (activeReport) openEmailModal(activeReport.id); else showToast('Generate a report first', 'error') }}
-              disabled={exportIdle || loading}
+              disabled={exportIdle || loading || !privileges.update}
               className={exportIdle ? exportIdleClass : `${exportBtnBase} bg-indigo-700 hover:bg-indigo-800`}
               title={exportIdle ? 'Generate a report first' : undefined}>
               📧 {t('emailReport')}
@@ -1209,9 +1211,9 @@ const Reports = () => {
                       className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm">📊</button>
                     <button onClick={() => handleHistoryPdf(r.id)} title="Export PDF"
                       className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm">📄</button>
-                    <button onClick={() => openEmailModal(r.id)} title="Email"
+                    <button disabled={!privileges.update} onClick={() => openEmailModal(r.id)} title="Email"
                       className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors text-sm">📧</button>
-                    <button onClick={() => handleDeleteReport(r)} title="Delete"
+                    <button disabled={!privileges.delete} onClick={() => handleDeleteReport(r)} title="Delete"
                       className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm">🗑️</button>
                   </div>
                 </div>
@@ -1283,7 +1285,7 @@ const Reports = () => {
               </button>
               <button
                 onClick={handleGenerateSeasonal}
-                disabled={generating || !selectedSeasonId || seasons.length === 0}
+                disabled={!privileges.create || generating || !selectedSeasonId || seasons.length === 0}
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {generating ? <><span className="animate-spin">⏳</span> Generating…</> : 'Generate Seasonal Report'}
@@ -1306,7 +1308,7 @@ const Reports = () => {
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <button onClick={closeEmailModal} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm transition-all">Cancel</button>
-              <button onClick={handleSendEmail} disabled={emailSending || !emailAddress}
+              <button onClick={handleSendEmail} disabled={!privileges.update || emailSending || !emailAddress}
                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                 {emailSending ? <><span className="animate-spin">⏳</span> Sending…</> : 'Send Report'}
               </button>
@@ -1327,7 +1329,7 @@ const Reports = () => {
               <button type="button" className="btn-secondary" onClick={() => setPendingDelete(null)} disabled={deleting}>
                 Cancel
               </button>
-              <button type="button" className="btn-modern" onClick={confirmDeleteReport} disabled={deleting}>
+              <button type="button" className="btn-modern" onClick={confirmDeleteReport} disabled={deleting || !privileges.delete}>
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>

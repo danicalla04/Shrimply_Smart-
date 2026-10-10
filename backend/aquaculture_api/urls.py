@@ -53,5 +53,6 @@ urlpatterns = [
     path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/me/', views.current_user, name='current_user'),
     path('api/weather/complete/', views.weather_complete, name='weather_complete_direct'),
 ]

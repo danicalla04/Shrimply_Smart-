@@ -1,3 +1,4 @@
+import { authService } from './auth';
 import API_BASE from './apiConfig';
 
 // WeMos HTTP API base URL.
@@ -80,36 +81,12 @@ export const wemosApi = {
   },
 
   async setServoSchedule({ openTime, closeTime, enabled }) {
-    // Backend proxy first
-    try {
-      const token = localStorage.getItem('access_token');
-      const headers = {
-        'Content-Type': 'application/json'
-      };
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const resp = await fetch(`${API_BASE}/feeder/servo_schedule/`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ openTime, closeTime, enabled })
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
-    } catch {
-      // Direct device fallback: POST form to /setSchedule
-      const params = new URLSearchParams();
-      params.set('openTime', openTime);
-      params.set('closeTime', closeTime);
-      if (enabled) params.set('enabled', 'on');
-      const resp = await fetch(`${WEMOS_BASE}/setSchedule`, {
-        method: 'POST',
-        body: params,
-        cache: 'no-store'
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      // Try read schedule after setting
-      return await fetchJsonWithTimeout(`${WEMOS_BASE}/api/schedule`, 1500);
-    }
+    const response = await authService.apiCall(`${API_BASE}/feeder/servo_schedule/`, {
+      method: 'POST',
+      body: JSON.stringify({ openTime, closeTime, enabled })
+    });
+    if (!response.ok) throw new Error('You cannot change the servo schedule, or the device is unavailable.');
+    return response.json();
   },
 
   async ping() {

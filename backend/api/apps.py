@@ -7,6 +7,8 @@ class ApiConfig(AppConfig):
 
     def ready(self):
         """Register signals and load ML models (dev only)."""
+        from . import audit  # noqa: F401
+
         # Always register signals (do not gate on RUN_MAIN).
         try:
             from . import signals  # noqa: F401

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { authService } from '../services/auth'
 import { useLanguage } from '../context/LanguageContext'
 
@@ -9,9 +9,7 @@ const Login = () => {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
-  const location = useLocation()
   const { t } = useLanguage()
-  const justRegistered = location.state?.registered
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -55,9 +53,6 @@ const Login = () => {
             <p className="aq-sub">{t('appTagline')}</p>
           </div>
           <form onSubmit={handleSubmit} className="space-y-5">
-            {justRegistered && (
-              <div className="alert-modern alert-success-modern text-sm text-center">{t('accountCreated')}</div>
-            )}
             <div>
               <label htmlFor="username" className="block text-sm mb-2 text-cyan-100">{t('username')}</label>
               <input id="username" className="input-modern" value={username} onChange={(e) => setUsername(e.target.value)} required />
@@ -72,8 +67,7 @@ const Login = () => {
             </button>
           </form>
           <p className="text-center text-sm mt-6 text-cyan-200/70">
-            {t('noAccount')}{' '}
-            <Link to="/register" className="text-cyan-300 font-semibold">{t('createAccount')}</Link>
+            Contact your administrator to request an account.
           </p>
         </div>
       </div>

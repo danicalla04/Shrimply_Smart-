@@ -6,12 +6,12 @@ import { hideBootIfIdle } from './components/PageLoader';
 import { LanguageProvider } from './context/LanguageContext';
 import Landing from './pages/Landing'
 import Login from './pages/Login'
-import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Reports from './pages/Reports'
 import Alert from './pages/Alert'
 import About from './pages/About'
 import SystemSettings from './pages/SystemSettings'
+import Logs from './pages/Logs'
 import Feeding from './pages/Feeding';
 import HistoryOverview from './pages/HistoryOverview';
 import GrowthDashboard from './pages/GrowthDashboard';
@@ -48,12 +48,17 @@ function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/register" element={<Navigate to="/login" replace />} />
 
             {/* Protected routes with shared dashboard layout */}
             <Route path="/dashboard" element={
               <ProtectedRoute>
                 <DashboardLayout><Dashboard /></DashboardLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/logs" element={
+              <ProtectedRoute>
+                <DashboardLayout><Logs /></DashboardLayout>
               </ProtectedRoute>
             } />
             <Route path="/settings" element={

@@ -1,3 +1,4 @@
+import { usePrivileges } from '../context/PrivilegesContext'
 import { useEffect, useMemo, useState } from 'react'
 import AlertCard from '../components/AlertCard'
 import { useLanguage } from '../context/LanguageContext'
@@ -26,6 +27,7 @@ import { getFeederState, capacityPercent } from '../services/feeder'
 import { alertWebSocket } from '../services/alertWebSocket'
 
 const Alert = () => {
+  const privileges = usePrivileges()
   const { t } = useLanguage()
   const [alerts, setAlerts] = useState([])
   const thresholds = useMemo(() => getThresholds(), [])
@@ -240,7 +242,7 @@ const Alert = () => {
             <button
               onClick={handleMarkAllAsRead}
               className="btn-primary"
-              disabled={unreadCount === 0}
+              disabled={unreadCount === 0 || !privileges.update}
             >
               {t('markAllAsRead')}
             </button>
@@ -412,7 +414,7 @@ const Alert = () => {
               <button type="button" className="btn-secondary" onClick={() => setPendingDelete(null)} disabled={deleting}>
                 Cancel
               </button>
-              <button type="button" className="btn-modern" onClick={() => actuallyDeleteAlert(pendingDelete.id)} disabled={deleting}>
+              <button type="button" className="btn-modern" onClick={() => actuallyDeleteAlert(pendingDelete.id)} disabled={deleting || !privileges.delete}>
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
