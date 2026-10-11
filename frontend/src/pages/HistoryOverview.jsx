@@ -1,3 +1,4 @@
+import { sortSeasons } from '../services/seasonOrder'
 import { usePrivileges } from '../context/PrivilegesContext'
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import * as seasonApi from '../services/seasonBackend'
@@ -87,7 +88,7 @@ const HistoryOverview = () => {
                 fetchHistorySettings().catch(() => ({ harvest_lead_days: 90, harvest_time: '08:00', notification_email: '' })),
             ])
             const seasonList = Array.isArray(allSeasons) ? allSeasons : []
-            setSeasons(seasonList)
+            setSeasons(sortSeasons(seasonList))
             setActiveSeason(active)
 
             const s = Array.isArray(sets) ? sets[0] || { harvest_lead_days: 90 } : sets

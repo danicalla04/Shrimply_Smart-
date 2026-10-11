@@ -94,7 +94,7 @@ const Landing = () => {
             <header className="landing-top">
                 <div className="landing-brand">
                     <div className="aq-logo">
-                        <img src="/shrimply-logo.jpg" alt="" />
+                        <img src="/shrimply-logo-right.svg" alt="" />
                     </div>
                     <div>
                         <div className="pond-kicker">Aqua command</div>

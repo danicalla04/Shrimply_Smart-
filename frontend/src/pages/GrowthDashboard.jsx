@@ -1,3 +1,4 @@
+import { sortSeasons } from '../services/seasonOrder'
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import authService from '../services/auth';
@@ -20,7 +21,7 @@ export default function GrowthDashboard() {
         const res = await authService.apiCall(`${EFFECTIVE_API_BASE}/seasons/`);
         const seasonsJson = await res.json();
         const seasonsList = seasonsJson?.results || seasonsJson || [];
-        setSeasons(seasonsList);
+        setSeasons(sortSeasons(seasonsList));
 
         // Set initial season
         if (paramSeasonId) {

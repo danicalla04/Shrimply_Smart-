@@ -74,7 +74,7 @@ const Sidebar = ({ open, collapsed, onToggle, onNavigate }) => {
     <aside className={`aq-sidebar ${open ? 'is-open' : ''} ${collapsed ? 'is-collapsed' : ''}`}>
       <div className="aq-brand">
         <div className="aq-logo">
-          <img src="/shrimply-logo.jpg" alt="" />
+          <img src="/shrimply-logo-right.svg" alt="" />
         </div>
         <div className="aq-brand-copy">
           <h1>SHRIMPLY SMART</h1>

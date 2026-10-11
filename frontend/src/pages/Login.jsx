@@ -46,7 +46,7 @@ const Login = () => {
         <div className="card p-8 login-card">
           <div className="text-center mb-8">
             <div className="aq-logo login-logo mx-auto mb-4" style={{ width: 64, height: 64 }}>
-              <img src="/shrimply-logo.jpg" alt="" />
+              <img src="/shrimply-logo-right.svg" alt="" />
             </div>
             <div className="pond-kicker">Smart aquaculture platform</div>
             <h1 className="aq-title mt-2">{t('appName')}</h1>

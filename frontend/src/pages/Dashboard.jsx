@@ -698,7 +698,7 @@ const Dashboard = () => {
 
       <div className="aq-hero mb-4">
         <div className="pond-stage" style={{ minHeight: 280 }}>
-          <img src="/shrimp_pond_pic/shrimps-pond.jpg" alt="Shrimp pond" />
+          <img src="/pond-01.jpg" alt="Harvesting shrimp at Shrimply Smart Pond 01" />
           <div className="veil" />
           <div className="copy">
             <div className="pond-kicker">Vannamei production pond</div>

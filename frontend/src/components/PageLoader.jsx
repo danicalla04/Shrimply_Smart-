@@ -16,7 +16,7 @@ function ensureBootLoader(label) {
     el.setAttribute('aria-live', 'polite')
     el.setAttribute('aria-label', 'Loading')
     el.innerHTML = `
-      <div class="page-loader-mark"><img src="/shrimply-logo.jpg" alt="" /></div>
+      <div class="page-loader-mark"><img src="/shrimply-logo-right.svg" alt="" /></div>
       <div class="page-loader-name"></div>
     `
     document.body.appendChild(el)

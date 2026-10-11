@@ -5,11 +5,11 @@ import App from './App.jsx'
 
 import { applyTheme, getStoredTheme } from './services/theme'
 
-const faviconHref = `/shrimply-logo.jpg?v=4`
+const faviconHref = `/shrimply-logo-right.svg?v=1`
 document.querySelectorAll("link[rel*='icon']").forEach((el) => el.remove())
 const favicon = document.createElement('link')
 favicon.rel = 'icon'
-favicon.type = 'image/jpeg'
+favicon.type = 'image/svg+xml'
 favicon.href = faviconHref
 document.head.appendChild(favicon)
 
