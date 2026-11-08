@@ -103,6 +103,29 @@ class AccountPrivilegeTests(APITestCase):
         self.assertEqual(self.client.post('/api/seasons/', {}, format='json').status_code, 403)
         self.assertEqual(self.client.delete(url).status_code, 204)
 
+    def test_delete_season_removes_its_name_entries_and_history(self):
+        from .models import HarvestEntry, Season, SeasonHistory
+
+        self.grant(delete=True)
+        self.season.end_date = '2026-03-01'
+        self.season.is_active = False
+        self.season.save(update_fields=['end_date', 'is_active'])
+        HarvestEntry.objects.create(season=self.season, date='2026-01-10', amount=5)
+        matching_history = SeasonHistory.objects.create(
+            season_name=self.season.name, start_date=self.season.start_date,
+            end_date=self.season.end_date,
+        )
+        other_history = SeasonHistory.objects.create(
+            season_name='Other season', start_date='2026-02-01',
+        )
+
+        self.assertEqual(self.client.delete(f'/api/seasons/{self.season.pk}/').status_code, 204)
+        self.assertFalse(Season.objects.filter(pk=self.season.pk).exists())
+        self.assertFalse(HarvestEntry.objects.filter(season_id=self.season.pk).exists())
+        self.assertFalse(SeasonHistory.objects.filter(pk=matching_history.pk).exists())
+        self.assertTrue(SeasonHistory.objects.filter(pk=other_history.pk).exists())
+        self.assertFalse(Season.objects.filter(name='S1').exists())
+
     def test_admin_can_assign_privileges_and_default_is_read_only(self):
         self.client.force_authenticate(self.admin)
         base = {'password': 'Invited-Example-9482', 'password2': 'Invited-Example-9482'}

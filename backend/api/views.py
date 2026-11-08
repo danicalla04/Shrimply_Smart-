@@ -2802,6 +2802,17 @@ class SeasonViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    def perform_destroy(self, instance):
+        from django.db import transaction
+
+        with transaction.atomic():
+            SeasonHistory.objects.filter(
+                season_name=instance.name,
+                start_date=instance.start_date,
+                end_date=instance.end_date,
+            ).delete()
+            instance.delete()
+
     # POST /api/seasons/start/
     @action(detail=False, methods=['post'])
     def start(self, request):

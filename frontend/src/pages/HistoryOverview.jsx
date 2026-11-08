@@ -71,6 +71,7 @@ const HistoryOverview = () => {
     const [sensorAvgs, setSensorAvgs] = useState(null)
     const [expandedSeasonId, setExpandedSeasonId] = useState(null)
     const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null)
+    const [pendingDeleteSeason, setPendingDeleteSeason] = useState(null)
     const overviewRef = useRef(null)
     const [hoveredSeason, setHoveredSeason] = useState(null)
 
@@ -301,6 +302,24 @@ const HistoryOverview = () => {
                 const ents = await seasonApi.getSeasonEntries(selectedSeasonId).catch(() => [])
                 setSelectedEntries(Array.isArray(ents) ? ents : [])
             }
+        } catch (e) {
+            flash(e.message, 'error')
+        } finally {
+            setActionLoading(false)
+        }
+    }
+
+    const handleDeleteSeason = async () => {
+        if (!pendingDeleteSeason) return
+        setActionLoading(true)
+        try {
+            await seasonApi.deleteSeason(pendingDeleteSeason.id)
+            setPendingDeleteSeason(null)
+            setSelectedSeasonId(null)
+            setSelectedEntries([])
+            setExpandedSeasonId(null)
+            await loadAll()
+            flash('Season deleted')
         } catch (e) {
             flash(e.message, 'error')
         } finally {
@@ -724,6 +743,10 @@ const HistoryOverview = () => {
                         <div className="flex gap-2">
                             <button type="button" onClick={() => exportSeasonCSV(selectedSeason)}
                                 className="season-action-btn is-export">Export Excel</button>
+                            {privileges.delete && (
+                                <button type="button" onClick={() => setPendingDeleteSeason(selectedSeason)}
+                                    className="season-action-btn is-danger">Delete Season</button>
+                            )}
                             <button type="button" onClick={() => { setSelectedSeasonId(null); setSelectedEntries([]) }}
                                 className="season-action-btn is-close">Close</button>
                         </div>
@@ -940,6 +963,24 @@ const HistoryOverview = () => {
                             </button>
                             <button type="button" className="season-action-btn is-danger" onClick={handleDeleteEntry} disabled={actionLoading || !privileges.delete}>
                                 {actionLoading ? 'Deleting...' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {pendingDeleteSeason ? (
+                <div className="aq-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-season-title">
+                    <div className="card aq-modal">
+                        <h3 id="delete-season-title" className="text-lg font-semibold mb-2">Delete season</h3>
+                        <p className="text-sm text-cyan-100/80 mb-4">
+                            Delete "{pendingDeleteSeason.name}" and all its harvest entries and history? This cannot be undone.
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <button type="button" className="season-action-btn is-close" onClick={() => setPendingDeleteSeason(null)} disabled={actionLoading}>
+                                Cancel
+                            </button>
+                            <button type="button" className="season-action-btn is-danger" onClick={handleDeleteSeason} disabled={actionLoading || !privileges.delete}>
+                                {actionLoading ? 'Deleting...' : 'Delete Season'}
                             </button>
                         </div>
                     </div>
