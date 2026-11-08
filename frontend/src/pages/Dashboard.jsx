@@ -616,7 +616,7 @@ const Dashboard = () => {
     ph: phLevel,
     turbidity,
     tds,
-  })
+  }, thresholds)
   const overallPoorText = overallQuality.poor
     .map((row) => `${t(row.nameKey)}: ${t(row.labelKey)} - ${t(row.verdictKey)}`)
     .join(', ')
@@ -630,7 +630,7 @@ const Dashboard = () => {
 
   const toneOf = (key, value) => {
     if (!sensorOnline || isSensorDisconnected(key, value)) return 'offline'
-    const tone = classifySensor(key, value).tone
+    const tone = classifySensor(key, value, thresholds).tone
     if (tone === 'good') return 'normal'
     if (tone === 'caution') return 'warning'
     if (tone === 'bad') return 'critical'
@@ -638,10 +638,10 @@ const Dashboard = () => {
   }
 
   const gauges = [
-    { key: 'temperature', title: 'Temperature', value: temperature, unit: '°C', min: 20, max: 36 },
-    { key: 'ph', title: 'pH', value: phLevel, unit: 'pH', min: 6, max: 9 },
-    { key: 'turbidity', title: 'Turbidity', value: turbidity, unit: 'NTU', min: 0, max: 40 },
-    { key: 'tds', title: 'TDS / EC', value: tds, unit: 'ppm', min: 0, max: 600 },
+    { key: 'temperature', title: 'Temperature', value: temperature, unit: '°C' },
+    { key: 'ph', title: 'pH', value: phLevel, unit: 'pH' },
+    { key: 'turbidity', title: 'Turbidity', value: turbidity, unit: 'NTU' },
+    { key: 'tds', title: 'TDS / EC', value: tds, unit: 'ppm' },
   ]
 
   const feederOnline = isFeederTelemetryFresh(feederTel?.timestamp, nowTs)
@@ -733,10 +733,10 @@ const Dashboard = () => {
       <div className="gauge-grid mb-4">
         {gauges.map((g) => {
           const level = toneOf(g.key, g.value)
-          const reading = classifySensor(g.key, g.value)
+          const reading = classifySensor(g.key, g.value, thresholds)
           return (
             <div key={g.key} className="card gauge-card">
-              <GaugeRing value={sensorOnline ? g.value : null} min={g.min} max={g.max} unit={g.unit} tone={level} />
+              <GaugeRing value={sensorOnline ? g.value : null} min={thresholds[g.key]?.min} max={thresholds[g.key]?.max} unit={g.unit} tone={level} />
               <h3>{g.title}</h3>
               <span className={`tone-chip ${level}`}>
                 {level === 'offline' ? 'Sensor disconnected' : `${t(reading.labelKey)} - ${t(reading.verdictKey)}`}

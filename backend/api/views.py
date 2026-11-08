@@ -2459,26 +2459,6 @@ def weather_municipalities(request):
     except Exception as e:
         return Response({'error': f'Error fetching municipalities: {str(e)}'}, status=500)
 
-# Same shrimp table as frontend/src/services/sensorLabels.js
-_SHRIMP_LABEL_BANDS = {
-    'temperature': [(-float('inf'), 25.999, 'bad'), (26, 32, 'good'), (32.001, float('inf'), 'bad')],
-    'ph': [(-float('inf'), 6.999, 'bad'), (7, 7, 'good'), (7.001, float('inf'), 'bad')],
-    'turbidity': [(-float('inf'), 4.999, 'bad'), (5, 25, 'good'), (25.001, float('inf'), 'bad')],
-    'tds': [(-float('inf'), 99.999, 'bad'), (100, 500, 'good'), (500.001, float('inf'), 'bad')],
-}
-
-
-def _shrimp_label_tone(param, value):
-    try:
-        n = float(value)
-    except (TypeError, ValueError):
-        return 'neutral'
-    for lo, hi, tone in _SHRIMP_LABEL_BANDS.get(param, []):
-        if lo <= n <= hi:
-            return tone
-    return 'bad'
-
-
 @api_view(['GET'])
 @permission_classes([AllowAny, AccountPrivileges])
 def water_quality_status(request):
@@ -2524,7 +2504,6 @@ def water_quality_status(request):
 
         # Assess each parameter
         parameters = {}
-        all_good = True
         issues = []
         disconnected = []
 
@@ -2549,17 +2528,13 @@ def water_quality_status(request):
 
             is_optimal = ranges['min'] <= value <= ranges['max']
             status_label = 'optimal' if is_optimal else 'suboptimal'
-            label_tone = _shrimp_label_tone(param, value)
+            label_tone = 'good' if is_optimal else 'bad'
 
             if not is_optimal:
-                all_good = False
                 if value < ranges['min']:
                     issues.append(f"{ranges['name']} is too low ({value:.1f})")
                 else:
                     issues.append(f"{ranges['name']} is too high ({value:.1f})")
-            if label_tone != 'good':
-                issues.append(f"{ranges['name']} is {label_tone} for shrimp ({value:.1f})")
-
             parameters[param] = {
                 'value': value,
                 'status': status_label,
@@ -2569,17 +2544,17 @@ def water_quality_status(request):
                 'unit': ranges.get('unit', '')
             }
 
-        # Threshold-based baseline (ignore disconnected sensors for "all good")
+        # Saved Settings ranges determine the status for every connected sensor.
         connected = [p for p in parameters.values() if p['status'] != 'disconnected']
-        all_good = all(p['status'] == 'optimal' for p in connected) if connected else False
-        labels_good = all(p.get('label_tone') == 'good' for p in connected) if connected else False
-        threshold_status = 'good' if labels_good and not disconnected else ('caution' if disconnected and labels_good else 'poor')
-        if disconnected and labels_good:
+        connected_good = bool(connected) and all(p['status'] == 'optimal' for p in connected)
+        all_good = connected_good and not disconnected
+        threshold_status = 'good' if all_good else ('caution' if disconnected and connected_good else 'poor')
+        if disconnected and connected_good:
             threshold_message = (
                 f'{len(disconnected)} sensor(s) disconnected: {", ".join(disconnected)}. '
                 f'Connected sensors are in the good range for shrimp.'
             )
-        elif labels_good:
+        elif all_good:
             threshold_message = 'All parameters are in the good range for shrimp'
         else:
             poor_names = [
@@ -2614,36 +2589,12 @@ def water_quality_status(request):
         except Exception as e:
             logger.warning(f'Water quality ML skipped: {e}')
 
-        # Label table wins over ML. Prevents "GOOD / Normal" while cards show Poor.
-        if ml_result and labels_good and not disconnected:
-            overall_status = ml_result['status']
-            ml_class = ml_result['ml_class']
-            quality_score = ml_result['quality_score']
-            conf = ml_result.get('confidence')
-            conf_txt = f' ({conf:.0f}% confidence)' if conf is not None else ''
-            message = (
-                f'ML water quality: {ml_class}{conf_txt}. '
-                f'Table check: {threshold_message.lower()}.'
-            )
-            assessment_mode = 'ml+threshold'
-        else:
-            overall_status = threshold_status
-            quality_score = threshold_score
-            if ml_result and (not labels_good or disconnected):
-                conf = ml_result.get('confidence')
-                conf_txt = f' ({conf:.0f}% confidence)' if conf is not None else ''
-                message = (
-                    f'{threshold_message}. '
-                    f'ML suggested {ml_result["ml_class"]}{conf_txt} but was overridden '
-                    f'because a parameter is Poor for shrimp or a sensor is disconnected.'
-                )
-                assessment_mode = 'threshold-priority'
-            elif not ml_result and (disconnected or not labels_good):
-                message = threshold_message
-                assessment_mode = 'threshold-based'
-            else:
-                message = threshold_message
-                assessment_mode = 'threshold-based'
+        # Settings ranges are authoritative for the displayed status. The ML
+        # result remains available as separate diagnostic metadata below.
+        overall_status = threshold_status
+        quality_score = threshold_score
+        message = threshold_message
+        assessment_mode = 'threshold-based'
 
         # Add comprehensive recommendations (using actual database thresholds)
         recommendations = []
@@ -2652,17 +2603,6 @@ def water_quality_status(request):
                 'Disconnected sensor(s): ' + ', '.join(disconnected)
                 + ' — check probe wiring / Arduino output. Other sensors may still be online.'
             )
-        if ml_result and all_good and not disconnected:
-            ml_class = ml_result['ml_class']
-            if ml_class == 'Normal':
-                recommendations.append('ML: Water quality is Normal — maintain current management.')
-            elif ml_class == 'Caution':
-                recommendations.append('ML: Caution — monitor closely and prepare corrective actions.')
-            elif ml_class == 'Warning':
-                recommendations.append('ML: Warning — address out-of-range parameters soon.')
-            elif ml_class == 'Severe':
-                recommendations.append('ML: Severe — immediate water-quality intervention recommended.')
-
         if not all_good:
             if 'turbidity' in parameters and parameters['turbidity']['status'] == 'suboptimal':
                 turb_val = parameters['turbidity']['value']

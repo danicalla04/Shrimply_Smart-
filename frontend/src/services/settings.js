@@ -1,20 +1,11 @@
 import axios from 'axios'
 import { authService } from './auth'
 import API_BASE from './apiConfig'
+import { DEFAULT_THRESHOLDS } from './sensorDefaults'
+
+export { DEFAULT_THRESHOLDS } from './sensorDefaults'
 
 const STORAGE_KEY = 'sensorThresholds'
-
-// Default sensor ranges derived from Normal-class samples in
-// possible_dataset/fishpond_dataset_multiclass_2153.csv
-// (638 Normal rows: temp 25–29.96°C, pH 6.5–8.5, turbidity 1–25 NTU, TDS 21–324 ppm).
-// Interim while shrimp-specific growth-linked water-quality data is still being gathered.
-// Note: older research defaults (temp 28–32, turbidity 25–50) overlapped this CSV's Caution band.
-export const DEFAULT_THRESHOLDS = Object.freeze({
-  temperature: { min: 25, max: 30, unit: '°C', step: 0.1 },
-  ph: { min: 6.5, max: 8.5, unit: '', step: 0.1 },
-  turbidity: { min: 1, max: 25, unit: 'NTU', step: 0.1 },
-  tds: { min: 20, max: 325, unit: 'ppm', step: 5 },
-})
 
 export function getDefaultThresholds() {
   return JSON.parse(JSON.stringify(DEFAULT_THRESHOLDS))

@@ -1,40 +1,4 @@
-/**
- * Card labels from the project’s water-quality table:
- * Low/Poor | Normal/Good | High/Poor
- */
-function band(min, max, labelKey, hintKey, tone) {
-  return { min, max, labelKey, hintKey, tone }
-}
-
-export const SENSOR_LABEL_BANDS = {
-  temperature: [
-    band(-Infinity, 25.999, 'labelTempCold', 'hintTempCold', 'bad'),
-    band(26, 32, 'labelTempSuitable', 'hintTempSuitable', 'good'),
-    band(32.001, Infinity, 'labelTempHot', 'hintTempHot', 'bad'),
-  ],
-  ph: [
-    band(-Infinity, 6.999, 'labelPhAcidic', 'hintPhAcidic', 'bad'),
-    band(7, 7, 'labelPhNeutral', 'hintPhNeutral', 'good'),
-    band(7.001, Infinity, 'labelPhAlkaline', 'hintPhAlkaline', 'bad'),
-  ],
-  turbidity: [
-    band(-Infinity, 4.999, 'labelTurbClear', 'hintTurbClear', 'bad'),
-    band(5, 25, 'labelTurbModerate', 'hintTurbModerate', 'good'),
-    band(25.001, Infinity, 'labelTurbCloudy', 'hintTurbCloudy', 'bad'),
-  ],
-  tds: [
-    band(-Infinity, 99.999, 'labelTdsLow', 'hintTdsLow', 'bad'),
-    band(100, 500, 'labelTdsModerate', 'hintTdsModerate', 'good'),
-    band(500.001, Infinity, 'labelTdsHigh', 'hintTdsHigh', 'bad'),
-  ],
-}
-
-export const SENSOR_GUIDE_KEY = {
-  temperature: 'sensorLabelGuideTemp',
-  ph: 'sensorLabelGuidePh',
-  turbidity: 'sensorLabelGuideTurb',
-  tds: 'sensorLabelGuideTds',
-}
+import { DEFAULT_THRESHOLDS } from './sensorDefaults.js'
 
 const VERDICT_KEY = {
   good: 'verdictGood',
@@ -43,7 +7,10 @@ const VERDICT_KEY = {
   neutral: 'verdictUnknown',
 }
 
-export function classifySensor(param, value) {
+export function classifySensor(param, value, thresholds = DEFAULT_THRESHOLDS) {
+  if (value === null || value === undefined || value === '' || (typeof value === 'string' && !value.trim())) {
+    return { labelKey: 'labelUnknown', hintKey: 'hintUnknown', tone: 'neutral', verdictKey: 'verdictUnknown' }
+  }
   const n = Number(value)
   if (!Number.isFinite(n)) {
     return {
@@ -53,9 +20,11 @@ export function classifySensor(param, value) {
       verdictKey: 'verdictUnknown',
     }
   }
-  const bands = SENSOR_LABEL_BANDS[param] || []
-  const match = bands.find((b) => n >= b.min && n <= b.max) || bands[bands.length - 1]
-  if (!match) {
+  const range = thresholds?.[param]
+  const fallback = DEFAULT_THRESHOLDS[param]
+  const min = Number(range?.min ?? fallback?.min)
+  const max = Number(range?.max ?? fallback?.max)
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
     return {
       labelKey: 'labelUnknown',
       hintKey: 'hintUnknown',
@@ -63,12 +32,12 @@ export function classifySensor(param, value) {
       verdictKey: 'verdictUnknown',
     }
   }
-  return {
-    labelKey: match.labelKey,
-    hintKey: match.hintKey,
-    tone: match.tone,
-    verdictKey: VERDICT_KEY[match.tone] || 'verdictUnknown',
-  }
+  const band = n < min
+    ? { labelKey: 'labelBelowRange', hintKey: 'hintBelowRange', tone: 'bad' }
+    : n > max
+      ? { labelKey: 'labelAboveRange', hintKey: 'hintAboveRange', tone: 'bad' }
+      : { labelKey: 'labelInRange', hintKey: 'hintInRange', tone: 'good' }
+  return { ...band, verdictKey: VERDICT_KEY[band.tone] }
 }
 
 export const SENSOR_NAME_KEY = {
@@ -91,12 +60,12 @@ export const OVERALL_STATUS = {
   neutral: { level: 'offline', title: 'N/A OFFLINE', summary: 'Sensor readings are unavailable.' },
 }
 
-export function summarizeOverallQuality(values = {}) {
+export function summarizeOverallQuality(values = {}, thresholds = DEFAULT_THRESHOLDS) {
   const keys = ['temperature', 'ph', 'turbidity', 'tds']
   const rows = keys.map((key) => ({
     key,
     nameKey: SENSOR_NAME_KEY[key],
-    ...classifySensor(key, values[key]),
+    ...classifySensor(key, values[key], thresholds),
   }))
   const known = rows.filter((row) => row.tone !== 'neutral')
   const inRange = rows.filter((row) => row.tone === 'good')

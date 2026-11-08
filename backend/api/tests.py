@@ -489,6 +489,53 @@ class ConnectionAlertRecoveryTests(APITestCase):
         self.assertEqual(Alert.objects.filter(parameter='ph').count(), 2)
 
 
+class WaterQualitySettingsRangeTests(APITestCase):
+    def setUp(self):
+        from .models import Threshold
+
+        self.client.force_authenticate(User.objects.create_user('water_quality_viewer'))
+        self.ranges = {
+            'temperature': (25, 30), 'ph': (6.5, 8.5),
+            'turbidity': (1, 25), 'tds': (20, 325),
+        }
+        for parameter, (minimum, maximum) in self.ranges.items():
+            Threshold.objects.create(parameter=parameter, min_value=minimum, max_value=maximum)
+
+    def test_all_readings_within_settings_ranges_are_good_even_if_model_disagrees(self):
+        from unittest.mock import patch
+        from .models import SensorReading
+
+        SensorReading.objects.bulk_create([
+            SensorReading(temperature=25, ph=7.2, turbidity=1, tds=20),
+        ])
+        model_result = {'status': 'poor', 'ml_class': 'Severe', 'quality_score': 0}
+        with patch('api.ml_water_quality.predict_water_quality', return_value=model_result):
+            response = self.client.get('/api/water-quality/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], 'good')
+        self.assertEqual(response.data['threshold_score'], 100)
+        self.assertEqual(response.data['issues'], [])
+        for parameter in self.ranges:
+            self.assertEqual(response.data['parameters'][parameter]['status'], 'optimal')
+            self.assertEqual(response.data['parameters'][parameter]['label_tone'], 'good')
+
+    def test_reading_outside_saved_range_is_poor(self):
+        from unittest.mock import patch
+        from .models import SensorReading
+
+        SensorReading.objects.bulk_create([
+            SensorReading(temperature=26, ph=6.4, turbidity=2, tds=25),
+        ])
+        with patch('api.ml_water_quality.predict_water_quality', return_value=None):
+            response = self.client.get('/api/water-quality/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['status'], 'poor')
+        self.assertEqual(response.data['parameters']['ph']['label_tone'], 'bad')
+        self.assertEqual(response.data['threshold_score'], 75)
+
+
 class RangeAlertRecoveryTests(APITestCase):
     def setUp(self):
         from django.core.cache import cache

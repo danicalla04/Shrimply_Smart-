@@ -113,6 +113,7 @@ export default function WaterQuality() {
   const [ph, setPh] = useState(null)
   const [turbidity, setTurbidity] = useState(null)
   const [tds, setTds] = useState(null)
+  const [thresholds, setThresholds] = useState({})
   const [stamp, setStamp] = useState(null)
   const [nowTs, setNowTs] = useState(() => Date.now())
   const [history, setHistory] = useState([])
@@ -127,10 +128,12 @@ export default function WaterQuality() {
   useEffect(() => {
     const range = HISTORY_RANGES.find((r) => r.id === rangeId) || HISTORY_RANGES[1]
     const load = async () => {
-      const [latest, readings] = await Promise.all([
+      const [latest, readings, ranges] = await Promise.all([
         fetchLatestSensors().catch(() => ({})),
         getSensorReadings(null, 1, 10000, range.hours).catch(() => ({ results: [] })),
+        fetchThresholds(),
       ])
+      setThresholds(ranges)
       setTemperature(normalizeSensorValue('temperature', latest.temperature))
       setPh(normalizeSensorValue('ph', latest.ph))
       setTurbidity(normalizeSensorValue('turbidity', latest.turbidity))
@@ -148,7 +151,6 @@ export default function WaterQuality() {
       }))
     }
     load()
-    fetchThresholds().catch(() => {})
     const id = setInterval(load, 8000)
     return () => clearInterval(id)
   }, [rangeId])
@@ -159,18 +161,18 @@ export default function WaterQuality() {
   }, [])
 
   const sensorOnline = isSensorStreamFresh(stamp, nowTs)
-  const overall = summarizeOverallQuality({ temperature, ph, turbidity, tds })
+  const overall = summarizeOverallQuality({ temperature, ph, turbidity, tds }, thresholds)
   const toneOf = (key, value) => {
     if (!sensorOnline || isSensorDisconnected(key, value)) return 'offline'
-    const tone = classifySensor(key, value).tone
+    const tone = classifySensor(key, value, thresholds).tone
     return tone === 'good' ? 'normal' : tone === 'caution' ? 'warning' : tone === 'bad' ? 'critical' : 'offline'
   }
 
   const gauges = [
-    { key: 'temperature', title: 'Water temperature', value: temperature, unit: 'C', min: 20, max: 36 },
-    { key: 'ph', title: 'pH', value: ph, unit: 'pH', min: 6, max: 9 },
-    { key: 'turbidity', title: 'Turbidity', value: turbidity, unit: 'NTU', min: 0, max: 40 },
-    { key: 'tds', title: 'TDS', value: tds, unit: 'ppm', min: 0, max: 600 },
+    { key: 'temperature', title: 'Water temperature', value: temperature, unit: 'C' },
+    { key: 'ph', title: 'pH', value: ph, unit: 'pH' },
+    { key: 'turbidity', title: 'Turbidity', value: turbidity, unit: 'NTU' },
+    { key: 'tds', title: 'TDS', value: tds, unit: 'ppm' },
   ]
 
   return (
@@ -186,10 +188,10 @@ export default function WaterQuality() {
       <div className="gauge-grid mb-5">
         {gauges.map((g) => {
           const level = toneOf(g.key, g.value)
-          const reading = classifySensor(g.key, g.value)
+          const reading = classifySensor(g.key, g.value, thresholds)
           return (
             <div key={g.key} className="card gauge-card">
-              <GaugeRing value={sensorOnline ? g.value : null} min={g.min} max={g.max} unit={g.unit} tone={level} />
+              <GaugeRing value={sensorOnline ? g.value : null} min={thresholds[g.key]?.min} max={thresholds[g.key]?.max} unit={g.unit} tone={level} />
               <h3>{g.title}</h3>
               <span className={`tone-chip ${level}`}>
                 {level === 'offline' ? 'Sensor disconnected' : `${t(reading.labelKey)} - ${t(reading.verdictKey)}`}

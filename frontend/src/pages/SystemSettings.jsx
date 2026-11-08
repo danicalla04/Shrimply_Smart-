@@ -371,8 +371,8 @@ const SystemSettings = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        <h2 className="text-2xl font-bold text-gray-900 -mb-4">Normal Ranges (Alerts)</h2>
-        <p className="text-sm text-gray-600 mb-2">Min/max for dashboard &quot;Above max&quot; / &quot;Below min&quot; — not the same as data adjustment above.</p>
+        <h2 className="text-2xl font-bold text-gray-900 -mb-4">Normal Ranges (Water Quality and Alerts)</h2>
+        <p className="text-sm text-gray-600 mb-2">Readings within each saved min/max range are Good. Readings below or above the range are Poor.</p>
         {Object.entries(thresholds).map(([key, range]) => (
           <div key={key} className="card p-5">
             <h2 className="text-xl font-semibold text-gray-800 mb-4 capitalize">{key === 'ph' ? t('phLevelRange') : key === 'turbidity' ? t('turbidityRange') : key === 'tds' ? t('tdsRange') : t('temperatureRange')}</h2>
