@@ -57,6 +57,26 @@ function rowsFromDatabase(packetRows, hours) {
   return kept
 }
 
+function chartRowsWithGaps(rows) {
+  if (!rows.length) return []
+  const buckets = new Map(rows.map(row => [
+    Math.floor(new Date(row.timestamp).getTime() / TEN_MIN_MS), row,
+  ]))
+  const last = Math.floor(new Date(rows[rows.length - 1].timestamp).getTime() / TEN_MIN_MS)
+  const first = Math.max(
+    Math.floor(new Date(rows[0].timestamp).getTime() / TEN_MIN_MS),
+    last - 9999,
+  )
+  const points = []
+  for (let bucket = first; bucket <= last; bucket++) {
+    points.push(buckets.get(bucket) || {
+      timestamp: new Date(bucket * TEN_MIN_MS).toISOString(),
+      temperature: null, ph: null, turbidity: null, tds: null,
+    })
+  }
+  return points
+}
+
 function formatChartLabel(iso, rangeId) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
@@ -102,7 +122,7 @@ function series(color) {
       pointHoverBackgroundColor: color,
       pointHoverBorderColor: '#ffffff',
       pointHoverBorderWidth: 2,
-      spanGaps: true,
+      spanGaps: false,
     }],
   }
 }
@@ -142,12 +162,13 @@ export default function WaterQuality() {
       const packetRows = [...(readings.results || [])]
       const rows = rowsFromDatabase(packetRows, range.hours)
       setHistory([...rows].reverse())
-      const labels = rows.map((r) => formatChartLabel(r.timestamp, range.id))
+      const chartRows = chartRowsWithGaps(rows)
+      const labels = chartRows.map((r) => formatChartLabel(r.timestamp, range.id))
       setCharts((prev) => ({
-        temperature: { ...prev.temperature, labels, datasets: [{ ...prev.temperature.datasets[0], data: rows.map((r) => r.temperature) }] },
-        ph: { ...prev.ph, labels, datasets: [{ ...prev.ph.datasets[0], data: rows.map((r) => r.ph) }] },
-        turbidity: { ...prev.turbidity, labels, datasets: [{ ...prev.turbidity.datasets[0], data: rows.map((r) => r.turbidity) }] },
-        tds: { ...prev.tds, labels, datasets: [{ ...prev.tds.datasets[0], data: rows.map((r) => r.tds) }] },
+        temperature: { ...prev.temperature, labels, datasets: [{ ...prev.temperature.datasets[0], data: chartRows.map((r) => r.temperature) }] },
+        ph: { ...prev.ph, labels, datasets: [{ ...prev.ph.datasets[0], data: chartRows.map((r) => r.ph) }] },
+        turbidity: { ...prev.turbidity, labels, datasets: [{ ...prev.turbidity.datasets[0], data: chartRows.map((r) => r.turbidity) }] },
+        tds: { ...prev.tds, labels, datasets: [{ ...prev.tds.datasets[0], data: chartRows.map((r) => r.tds) }] },
       }))
     }
     load()
