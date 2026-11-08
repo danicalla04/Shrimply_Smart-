@@ -196,6 +196,11 @@
     filter: brightness(1.08);
 }
 
+.history-overview .season-action-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .history-overview .season-action-btn.is-export {
     background: #0f766e !important;
     border-color: rgba(45, 212, 191, 0.5);

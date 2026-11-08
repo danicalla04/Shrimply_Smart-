@@ -72,7 +72,11 @@ const HistoryOverview = () => {
     const [expandedSeasonId, setExpandedSeasonId] = useState(null)
     const [pendingDeleteEntry, setPendingDeleteEntry] = useState(null)
     const [pendingDeleteSeason, setPendingDeleteSeason] = useState(null)
+    const [compareSource, setCompareSource] = useState(null)
+    const [compareTargetId, setCompareTargetId] = useState('')
+    const [comparisonIds, setComparisonIds] = useState(null)
     const overviewRef = useRef(null)
+    const comparisonRef = useRef(null)
     const [hoveredSeason, setHoveredSeason] = useState(null)
 
 
@@ -363,10 +367,22 @@ const HistoryOverview = () => {
         return seasons.find(s => s.id === selectedSeasonId) || null
     }, [selectedSeasonId, seasons])
 
+    const selectedComparison = useMemo(() => {
+        if (!comparisonIds) return null
+        const source = seasons.find(s => s.id === comparisonIds[0])
+        const target = seasons.find(s => s.id === comparisonIds[1])
+        return source && target ? [source, target] : null
+    }, [comparisonIds, seasons])
+    const comparisonSeasons = selectedComparison || seasons
+
     useEffect(() => {
         if (!selectedSeasonId) return
         overviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, [selectedSeasonId])
+
+    useEffect(() => {
+        if (selectedComparison) comparisonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, [selectedComparison])
 
     // ── render ─────────────────────────────────────────────────────
     if (loading) {
@@ -724,6 +740,8 @@ const HistoryOverview = () => {
                                             <div className="season-card-actions">
                                                 <button type="button" onClick={() => handleViewOverview(season.id)}
                                                     className="season-action-btn">View Overview</button>
+                                                <button type="button" onClick={() => { setCompareSource(season); setCompareTargetId('') }}
+                                                    className="season-action-btn" disabled={seasons.length < 2}>Compare</button>
                                                 <button type="button" onClick={() => exportSeasonCSV(season)}
                                                     className="season-action-btn is-export">Export Excel</button>
                                             </div>
@@ -835,14 +853,22 @@ const HistoryOverview = () => {
 
             {/* ── Multi-Season Comparison Table ─────────────────────────── */}
             {seasons.length >= 2 && (
-                <div className="glass-card rounded-2xl p-6 mt-6">
-                    <h2 className="text-xl font-bold mb-4">📊 Multi-Season Comparison</h2>
+                <div ref={comparisonRef} className="glass-card rounded-2xl p-6 mt-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <h2 className="text-xl font-bold">📊 Season Comparison</h2>
+                        {selectedComparison && (
+                            <button type="button" className="season-action-btn is-close" onClick={() => setComparisonIds(null)}>
+                                Show All Seasons
+                            </button>
+                        )}
+                    </div>
+                    {selectedComparison && <p className="text-slate-400 mb-4">{selectedComparison[0].name} compared with {selectedComparison[1].name}</p>}
                     <div className="overflow-x-auto">
                         <table className="min-w-full text-sm">
                             <thead>
                                 <tr className="text-left text-slate-400">
                                     <th className="py-2 pr-4">Metric</th>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <th key={s.id} className="py-2 pr-4 text-center">{s.name}</th>
                                     ))}
                                 </tr>
@@ -850,31 +876,31 @@ const HistoryOverview = () => {
                             <tbody>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Duration (days)</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center">{s.days_active || '—'}</td>
                                     ))}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Initial Stock (pcs)</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center font-semibold">{formatPcs(seasonInitialStock(s))}</td>
                                     ))}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Current / Final Qty (pcs)</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center font-semibold">{formatPcs(s.current_shrimp_quantity)}</td>
                                     ))}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Avg Weight / ABW (g)</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center">{formatAbw(s.average_shrimp_weight_grams)}</td>
                                     ))}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Survival Rate</td>
-                                    {seasons.map(s => {
+                                    {comparisonSeasons.map(s => {
                                         const survival = seasonSurvivalPct(s)
                                         return (
                                             <td key={s.id} className="py-2 pr-4 text-center">
@@ -885,7 +911,7 @@ const HistoryOverview = () => {
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Biomass (kg)</td>
-                                    {seasons.map(s => {
+                                    {comparisonSeasons.map(s => {
                                         const bio = s.current_shrimp_quantity && s.average_shrimp_weight_grams
                                             ? (s.current_shrimp_quantity * s.average_shrimp_weight_grams / 1000)
                                             : 0
@@ -898,39 +924,39 @@ const HistoryOverview = () => {
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Total Harvest (kg)</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center font-semibold">{(s.total_harvest_kg || 0).toFixed(1)}</td>
                                     ))}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Harvest Count</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center">{s.harvest_count || 0}</td>
                                     ))}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Avg per Harvest (kg)</td>
-                                    {seasons.map(s => {
+                                    {comparisonSeasons.map(s => {
                                         const avg = s.harvest_count > 0 ? (s.total_harvest_kg || 0) / s.harvest_count : 0
                                         return <td key={s.id} className="py-2 pr-4 text-center">{avg > 0 ? avg.toFixed(1) : '—'}</td>
                                     })}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Yield per Day (kg/day)</td>
-                                    {seasons.map(s => {
+                                    {comparisonSeasons.map(s => {
                                         const yieldPerDay = s.days_active > 0 ? (s.total_harvest_kg || 0) / s.days_active : 0
                                         return <td key={s.id} className="py-2 pr-4 text-center">{yieldPerDay > 0 ? yieldPerDay.toFixed(2) : '—'}</td>
                                     })}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Stocking Density</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center">{s.stocking_density > 0 ? s.stocking_density.toLocaleString() : '—'}</td>
                                     ))}
                                 </tr>
                                 <tr className="border-t border-white/10">
                                     <td className="py-2 pr-4 font-medium">Status</td>
-                                    {seasons.map(s => (
+                                    {comparisonSeasons.map(s => (
                                         <td key={s.id} className="py-2 pr-4 text-center">
                                             {!s.end_date
                                                 ? <span className="season-status-active">Active</span>
@@ -945,6 +971,30 @@ const HistoryOverview = () => {
                 </div>
             )}
 
+            {compareSource ? (
+                <div className="aq-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="compare-season-title">
+                    <form className="card aq-modal" onSubmit={event => {
+                        event.preventDefault()
+                        if (!compareTargetId) return
+                        setComparisonIds([compareSource.id, Number(compareTargetId)])
+                        setCompareSource(null)
+                    }}>
+                        <h3 id="compare-season-title" className="text-lg font-semibold mb-2">Compare {compareSource.name}</h3>
+                        <label htmlFor="compare-season-select" className="block text-sm mb-2">Choose another season</label>
+                        <select id="compare-season-select" className="w-full rounded-lg p-2 mb-5" value={compareTargetId}
+                            onChange={event => setCompareTargetId(event.target.value)} required>
+                            <option value="">Select a season</option>
+                            {seasons.filter(season => season.id !== compareSource.id).map(season => (
+                                <option key={season.id} value={season.id}>{season.name}</option>
+                            ))}
+                        </select>
+                        <div className="flex justify-end gap-2">
+                            <button type="button" className="season-action-btn is-close" onClick={() => setCompareSource(null)}>Cancel</button>
+                            <button type="submit" className="season-action-btn" disabled={!compareTargetId}>View Season Comparison</button>
+                        </div>
+                    </form>
+                </div>
+            ) : null}
             {pendingDeleteEntry ? (
                 <div className="aq-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-entry-title">
                     <div className="card aq-modal">
