@@ -15,7 +15,7 @@ from .permissions import user_privileges, set_user_privileges
 class ActivityLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityLog
-        fields = ('id', 'username', 'privileges', 'action', 'resource', 'record_id', 'record_label', 'changes', 'occurred_at', 'is_simulated')
+        fields = ('id', 'username', 'privileges', 'action', 'resource', 'record_id', 'record_label', 'changes', 'occurred_at')
 
 
 class LogPagination(PageNumberPagination):
@@ -32,10 +32,8 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = ActivityLog.objects.all()
         params = self.request.query_params
-        if params.get('action') in ('create', 'update', 'delete', 'visit', 'read', 'auto_feed'):
+        if params.get('action') in ('create', 'update', 'delete'):
             queryset = queryset.filter(action=params['action'])
-        if params.get('simulated') in ('true', 'false'):
-            queryset = queryset.filter(is_simulated=params['simulated'] == 'true')
         if params.get('username'):
             queryset = queryset.filter(username=params['username'])
         if params.get('search'):

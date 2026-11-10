@@ -1,4 +1,7 @@
 from django.contrib.auth.models import User
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TransactionTestCase
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -51,8 +54,8 @@ class AccountCreationTests(APITestCase):
         self.assertEqual(self.client.get(reverse('current_user')).data, {'username': 'account_member', 'is_admin': False, 'privileges': {'create': False, 'update': False, 'delete': False}})
 
 
-class DemoAccessSeedTests(APITestCase):
-    def test_accounts_and_simulated_events_are_labeled_and_idempotent(self):
+class RequestedAccountSeedTests(APITestCase):
+    def test_accounts_and_password_reset_do_not_create_activity(self):
         from io import StringIO
         from zoneinfo import ZoneInfo
         from django.core.management import call_command
@@ -60,7 +63,7 @@ class DemoAccessSeedTests(APITestCase):
         from .permissions import user_privileges
 
         output = StringIO()
-        call_command('seed_demo_access', through='2026-10-18', stdout=output)
+        call_command('seed_demo_access', stdout=output)
         old_ray_password = next(line.split('temporary_password=')[1] for line in output.getvalue().splitlines() if 'username=ray.goco ' in line)
         self.assertEqual(User.objects.count(), 5)
         ray = User.objects.get(username='ray.goco')
@@ -74,27 +77,42 @@ class DemoAccessSeedTests(APITestCase):
             self.assertTrue(user.is_active)
             self.assertEqual(user_privileges(user), {'create': False, 'update': False, 'delete': False})
             self.assertEqual(user.date_joined.astimezone(ZoneInfo('Asia/Manila')).date().isoformat(), '2026-10-16')
-        self.assertEqual(ActivityLog.objects.count(), 6)
-        self.assertTrue(all(log.is_simulated and log.resource == 'demo_activity' for log in ActivityLog.objects.all()))
-        self.assertEqual(set(ActivityLog.objects.values_list('action', flat=True)), {'visit', 'read', 'auto_feed'})
+        self.assertEqual(ActivityLog.objects.count(), 0)
 
-        call_command('seed_demo_access', through='2026-10-18', stdout=StringIO())
+        call_command('seed_demo_access', stdout=StringIO())
         self.assertEqual(User.objects.count(), 5)
-        self.assertEqual(ActivityLog.objects.count(), 6)
-
-        self.client.force_authenticate(user=ray)
-        response = self.client.get('/api/activity-logs/?simulated=true')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data['count'], 6)
+        self.assertEqual(ActivityLog.objects.count(), 0)
 
         reset_output = StringIO()
-        call_command('seed_demo_access', through='2026-10-18', reset_passwords=True, stdout=reset_output)
+        call_command('seed_demo_access', reset_passwords=True, stdout=reset_output)
         self.assertEqual(reset_output.getvalue().count('CREDENTIALS  username='), 5)
         new_ray_password = next(line.split('temporary_password=')[1] for line in reset_output.getvalue().splitlines() if 'username=ray.goco ' in line)
         ray.refresh_from_db()
         self.assertFalse(ray.check_password(old_ray_password))
         self.assertTrue(ray.check_password(new_ray_password))
-        self.assertEqual(ActivityLog.objects.count(), 6)
+        self.assertEqual(ActivityLog.objects.count(), 0)
+
+
+class RemoveSimulatedActivityMigrationTests(TransactionTestCase):
+    def test_migration_deletes_generated_history_and_keeps_real_history(self):
+        old_target = [('api', '0029_activitylog_simulated_events')]
+        new_target = [('api', '0030_remove_simulated_activity')]
+        executor = MigrationExecutor(connection)
+        executor.migrate(old_target)
+        OldActivityLog = executor.loader.project_state(old_target).apps.get_model('api', 'ActivityLog')
+        OldActivityLog.objects.create(
+            username='ray.goco', privileges={}, action='visit', resource='demo_activity',
+            record_id='demo-ray-goco-20261016-visit', is_simulated=True,
+        )
+        OldActivityLog.objects.create(
+            username='admin123', privileges={}, action='update', resource='season',
+            record_id='42', is_simulated=False,
+        )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate(new_target)
+        NewActivityLog = executor.loader.project_state(new_target).apps.get_model('api', 'ActivityLog')
+        self.assertEqual(list(NewActivityLog.objects.values_list('username', flat=True)), ['admin123'])
 
 
 class AccountPrivilegeTests(APITestCase):
