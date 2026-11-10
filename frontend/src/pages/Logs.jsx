@@ -136,7 +136,7 @@ export default function Logs() {
         <p className="text-xs text-slate-400 mb-4">Changes are recorded when they occur. Times are shown in Philippine time.</p>
         <form className="flex flex-wrap gap-3 mb-5" onSubmit={event => { event.preventDefault(); setSearch(query.trim()); setPage(1) }}>
           <select aria-label="Filter by action" className="input-modern" style={{ width: 'auto' }} value={action} onChange={event => { setAction(event.target.value); setPage(1) }}>
-            <option value="">All actions</option><option value="create">Create</option><option value="update">Update</option><option value="delete">Delete</option>
+            <option value="">All actions</option><option value="create">Create</option><option value="update">Update</option><option value="delete">Delete</option><option value="visit">Visit</option>
           </select>
           <select aria-label="Filter by user" className="input-modern" style={{ width: 'auto' }} value={username} onChange={event => { setUsername(event.target.value); setPage(1) }}>
             <option value="">All users</option>

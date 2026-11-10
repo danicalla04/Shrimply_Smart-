@@ -4,6 +4,8 @@ import Sidebar from './Sidebar'
 import { PrivilegesProvider } from '../context/PrivilegesContext'
 import PageLoader from './PageLoader'
 import { applyTheme, getStoredTheme } from '../services/theme'
+import { authService } from '../services/auth'
+import API_BASE from '../services/apiConfig'
 
 const COLLAPSE_KEY = 'aq-sidebar-collapsed'
 
@@ -43,6 +45,13 @@ const DashboardLayout = ({ children }) => {
     setRouteLoading(true)
     const id = setTimeout(() => setRouteLoading(false), 600)
     return () => clearTimeout(id)
+  }, [location.pathname])
+
+  useEffect(() => {
+    authService.apiCall(`${API_BASE}/page-visits/`, {
+      method: 'POST',
+      body: JSON.stringify({ path: location.pathname }),
+    }).catch(() => {})
   }, [location.pathname])
 
   const toggleSidebar = () => {

@@ -229,6 +229,27 @@ class ActivityLogTests(APITestCase):
         self.assertEqual(deleted.record_label, 'Renamed season')
         self.assertIn({'field': 'name', 'before': 'Renamed season', 'after': None}, deleted.changes)
 
+    def test_page_visit_is_recorded_for_actual_authenticated_request_once_per_day(self):
+        from .models import ActivityLog
+
+        self.client.force_authenticate(None)
+        self.assertIn(self.client.post('/api/page-visits/', {'path': '/dashboard'}, format='json').status_code, (401, 403))
+        self.client.force_authenticate(self.member)
+        response = self.client.post('/api/page-visits/', {'path': '/dashboard'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['recorded'])
+        visit = ActivityLog.objects.get(action='visit')
+        self.assertEqual(visit.username, 'log_member')
+        self.assertEqual(visit.record_label, 'Opened Dashboard')
+        self.assertEqual(visit.record_id, '/dashboard')
+        self.assertFalse(self.client.post('/api/page-visits/', {'path': '/dashboard'}, format='json').data['recorded'])
+        self.assertEqual(self.client.post('/api/page-visits/', {'path': '/unknown'}, format='json').status_code, 400)
+        self.assertEqual(ActivityLog.objects.count(), 1)
+
+        self.client.force_authenticate(self.admin)
+        response = self.client.get('/api/activity-logs/?action=visit&username=log_member')
+        self.assertEqual(response.data['count'], 1)
+
     def test_logs_and_account_privileges_are_admin_only(self):
         for url in ['/api/activity-logs/', '/api/account-access/']:
             self.assertEqual(self.client.get(url).status_code, 403)

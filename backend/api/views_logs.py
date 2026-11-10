@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import serializers, viewsets, mixins, status
 from rest_framework.exceptions import ValidationError
 from django.db import transaction
@@ -10,6 +11,43 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from .models import ActivityLog
 from .permissions import user_privileges, set_user_privileges
+
+
+PAGE_LABELS = {
+    '/dashboard': 'Dashboard',
+    '/alerts': 'Alert center',
+    '/feeding': 'Feeding',
+    '/ponds': 'Ponds',
+    '/water-quality': 'Water quality',
+    '/analytics': 'Analytics',
+    '/history': 'History',
+    '/settings': 'Settings',
+    '/weather': 'Weather',
+    '/reports': 'Reports',
+    '/logs': 'Logs',
+}
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def record_page_visit(request):
+    """Record a page actually opened by the authenticated website user."""
+    path = request.data.get('path')
+    if path not in PAGE_LABELS:
+        raise ValidationError({'path': 'Unknown page.'})
+    today = timezone.localdate()
+    existing = ActivityLog.objects.filter(
+        actor=request.user, action='visit', resource='page', record_id=path,
+        occurred_at__date=today,
+    ).exists()
+    if not existing:
+        ActivityLog.objects.create(
+            actor=request.user, username=request.user.username,
+            privileges=user_privileges(request.user), action='visit',
+            resource='page', record_id=path, record_label=f'Opened {PAGE_LABELS[path]}',
+            changes=[{'field': 'page', 'before': None, 'after': path}],
+        )
+    return Response({'recorded': not existing})
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
@@ -32,7 +70,7 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = ActivityLog.objects.all()
         params = self.request.query_params
-        if params.get('action') in ('create', 'update', 'delete'):
+        if params.get('action') in ('create', 'update', 'delete', 'visit'):
             queryset = queryset.filter(action=params['action'])
         if params.get('username'):
             queryset = queryset.filter(username=params['username'])
