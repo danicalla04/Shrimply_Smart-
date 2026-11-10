@@ -61,6 +61,7 @@ class DemoAccessSeedTests(APITestCase):
 
         output = StringIO()
         call_command('seed_demo_access', through='2026-10-18', stdout=output)
+        old_ray_password = next(line.split('temporary_password=')[1] for line in output.getvalue().splitlines() if 'username=ray.goco ' in line)
         self.assertEqual(User.objects.count(), 5)
         ray = User.objects.get(username='ray.goco')
         self.assertTrue(ray.is_staff)
@@ -79,6 +80,20 @@ class DemoAccessSeedTests(APITestCase):
 
         call_command('seed_demo_access', through='2026-10-18', stdout=StringIO())
         self.assertEqual(User.objects.count(), 5)
+        self.assertEqual(ActivityLog.objects.count(), 6)
+
+        self.client.force_authenticate(user=ray)
+        response = self.client.get('/api/activity-logs/?simulated=true')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['count'], 6)
+
+        reset_output = StringIO()
+        call_command('seed_demo_access', through='2026-10-18', reset_passwords=True, stdout=reset_output)
+        self.assertEqual(reset_output.getvalue().count('CREDENTIALS  username='), 5)
+        new_ray_password = next(line.split('temporary_password=')[1] for line in reset_output.getvalue().splitlines() if 'username=ray.goco ' in line)
+        ray.refresh_from_db()
+        self.assertFalse(ray.check_password(old_ray_password))
+        self.assertTrue(ray.check_password(new_ray_password))
         self.assertEqual(ActivityLog.objects.count(), 6)
 
 

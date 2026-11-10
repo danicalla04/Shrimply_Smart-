@@ -17,6 +17,7 @@ export default function Logs() {
   const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
   const [action, setAction] = useState('')
+  const [simulated, setSimulated] = useState('')
   const [username, setUsername] = useState('')
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
@@ -73,7 +74,7 @@ export default function Logs() {
       setLoading(true)
       setError('')
       try {
-        const params = new URLSearchParams({ page: String(page), action, username, search })
+        const params = new URLSearchParams({ page: String(page), action, simulated, username, search })
         const responses = await Promise.all([
           authService.apiCall(`${API_BASE}/account-access/`, { signal: controller.signal }),
           authService.apiCall(`${API_BASE}/activity-logs/?${params}`, { signal: controller.signal }),
@@ -92,7 +93,7 @@ export default function Logs() {
     }
     load()
     return () => controller.abort()
-  }, [isAdmin, page, action, username, search, refresh])
+  }, [isAdmin, page, action, simulated, username, search, refresh])
 
   if (!loaded) return <p className="p-6" role="status">Checking administrator access...</p>
   if (!isAdmin) return <Navigate to="/dashboard" replace />
@@ -137,6 +138,9 @@ export default function Logs() {
         <form className="flex flex-wrap gap-3 mb-5" onSubmit={event => { event.preventDefault(); setSearch(query.trim()); setPage(1) }}>
           <select aria-label="Filter by action" className="input-modern" style={{ width: 'auto' }} value={action} onChange={event => { setAction(event.target.value); setPage(1) }}>
             <option value="">All actions</option><option value="create">Create</option><option value="update">Update</option><option value="delete">Delete</option><option value="visit">Visit</option><option value="read">Read</option><option value="auto_feed">Auto feed</option>
+          </select>
+          <select aria-label="Filter simulated activity" className="input-modern" style={{ width: 'auto' }} value={simulated} onChange={event => { setSimulated(event.target.value); setPage(1) }}>
+            <option value="">All activity</option><option value="true">Simulated only</option><option value="false">Real only</option>
           </select>
           <select aria-label="Filter by user" className="input-modern" style={{ width: 'auto' }} value={username} onChange={event => { setUsername(event.target.value); setPage(1) }}>
             <option value="">All users</option>

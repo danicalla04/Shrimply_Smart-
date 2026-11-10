@@ -28,6 +28,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--through', help='Last demo activity date (YYYY-MM-DD); defaults to today in Manila.')
+        parser.add_argument('--reset-passwords', action='store_true', help='Generate and print new passwords for existing requested accounts.')
 
     def handle(self, *args, **options):
         today = datetime.now(MANILA).date()
@@ -61,8 +62,15 @@ class Command(BaseCommand):
                     user.is_staff = is_admin
                     user.is_superuser = False
                     user.is_active = True
-                    user.save(update_fields=['is_staff', 'is_superuser', 'is_active'])
-                    existing_accounts.append(username)
+                    update_fields = ['is_staff', 'is_superuser', 'is_active']
+                    if options['reset_passwords']:
+                        password = secrets.token_urlsafe(18)
+                        user.set_password(password)
+                        update_fields.append('password')
+                        new_credentials.append((username, password))
+                    else:
+                        existing_accounts.append(username)
+                    user.save(update_fields=update_fields)
                 set_user_privileges(user, {'create': False, 'update': False, 'delete': False})
                 if is_admin:
                     ray = user
@@ -95,7 +103,7 @@ class Command(BaseCommand):
                 day += timedelta(days=1)
 
         for username, password in new_credentials:
-            self.stdout.write(f'NEW ACCOUNT  username={username}  temporary_password={password}')
+            self.stdout.write(f'CREDENTIALS  username={username}  temporary_password={password}')
         for username in existing_accounts:
             self.stdout.write(f'EXISTING ACCOUNT  username={username}  password unchanged; join date unchanged')
         self.stdout.write(self.style.SUCCESS(

@@ -34,6 +34,8 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
         params = self.request.query_params
         if params.get('action') in ('create', 'update', 'delete', 'visit', 'read', 'auto_feed'):
             queryset = queryset.filter(action=params['action'])
+        if params.get('simulated') in ('true', 'false'):
+            queryset = queryset.filter(is_simulated=params['simulated'] == 'true')
         if params.get('username'):
             queryset = queryset.filter(username=params['username'])
         if params.get('search'):
