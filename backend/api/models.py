@@ -1044,7 +1044,11 @@ class ActivityLog(models.Model):
     actor = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='activity_logs')
     username = models.CharField(max_length=150)
     privileges = models.JSONField(default=dict)
-    action = models.CharField(max_length=10, choices=[('create', 'Create'), ('update', 'Update'), ('delete', 'Delete')])
+    action = models.CharField(max_length=10, choices=[
+        ('create', 'Create'), ('update', 'Update'), ('delete', 'Delete'),
+        ('visit', 'Visit'), ('read', 'Read'), ('auto_feed', 'Auto feed'),
+    ])
+    is_simulated = models.BooleanField(default=False)
     resource = models.CharField(max_length=100)
     record_id = models.CharField(max_length=100, blank=True)
     record_label = models.CharField(max_length=255, blank=True)

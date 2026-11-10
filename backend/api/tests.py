@@ -51,6 +51,37 @@ class AccountCreationTests(APITestCase):
         self.assertEqual(self.client.get(reverse('current_user')).data, {'username': 'account_member', 'is_admin': False, 'privileges': {'create': False, 'update': False, 'delete': False}})
 
 
+class DemoAccessSeedTests(APITestCase):
+    def test_accounts_and_simulated_events_are_labeled_and_idempotent(self):
+        from io import StringIO
+        from zoneinfo import ZoneInfo
+        from django.core.management import call_command
+        from .models import ActivityLog
+        from .permissions import user_privileges
+
+        output = StringIO()
+        call_command('seed_demo_access', through='2026-10-18', stdout=output)
+        self.assertEqual(User.objects.count(), 5)
+        ray = User.objects.get(username='ray.goco')
+        self.assertTrue(ray.is_staff)
+        self.assertFalse(ray.is_superuser)
+        self.assertEqual(ray.date_joined.astimezone(ZoneInfo('Asia/Manila')).date().isoformat(), '2026-10-16')
+        self.assertEqual(user_privileges(ray), {'create': True, 'update': True, 'delete': True})
+        for username in ('leizl.reyes.abas', 'mark.royan', 'darwin.baculo', 'felix.flores'):
+            user = User.objects.get(username=username)
+            self.assertFalse(user.is_staff)
+            self.assertTrue(user.is_active)
+            self.assertEqual(user_privileges(user), {'create': False, 'update': False, 'delete': False})
+            self.assertEqual(user.date_joined.astimezone(ZoneInfo('Asia/Manila')).date().isoformat(), '2026-10-16')
+        self.assertEqual(ActivityLog.objects.count(), 6)
+        self.assertTrue(all(log.is_simulated and log.resource == 'demo_activity' for log in ActivityLog.objects.all()))
+        self.assertEqual(set(ActivityLog.objects.values_list('action', flat=True)), {'visit', 'read', 'auto_feed'})
+
+        call_command('seed_demo_access', through='2026-10-18', stdout=StringIO())
+        self.assertEqual(User.objects.count(), 5)
+        self.assertEqual(ActivityLog.objects.count(), 6)
+
+
 class AccountPrivilegeTests(APITestCase):
     def setUp(self):
         from .models import Season

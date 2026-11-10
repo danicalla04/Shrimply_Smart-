@@ -110,10 +110,11 @@ export default function Logs() {
         {accountSuccess && <p className="alert-modern alert-success-modern mb-4" role="status">{accountSuccess}</p>}
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead><tr className="border-b border-slate-500/30">{['User', 'Email', 'Role', 'Read', 'Create', 'Update', 'Delete', 'Status', 'Actions'].map(title => <th key={title} className="p-3">{title}</th>)}</tr></thead>
+            <thead><tr className="border-b border-slate-500/30">{['User', 'Joined', 'Email', 'Role', 'Read', 'Create', 'Update', 'Delete', 'Status', 'Actions'].map(title => <th key={title} className="p-3">{title}</th>)}</tr></thead>
             <tbody>{accounts.map(user => (
               <tr key={user.id} className="border-b border-slate-500/20">
                 <td className="p-3 font-medium">{user.username}{user.name && <span className="block text-xs text-slate-400">{user.name}</span>}</td>
+                <td className="p-3 whitespace-nowrap">{user.date_joined ? timeText(user.date_joined) : 'Not recorded'}</td>
                 <td className="p-3">{user.email || 'Not set'}</td>
                 <td className="p-3">{user.is_admin ? 'Admin' : !Object.values(user.privileges).some(Boolean) ? 'Read only' : 'User'}</td>
                 <td className="p-3">Yes</td>
@@ -132,10 +133,10 @@ export default function Logs() {
       </section>
       <section className="card p-5">
         <h2 className="text-xl font-semibold mb-2">Activity history</h2>
-        <p className="text-xs text-slate-400 mb-4">New changes are recorded from the time logging was enabled. Times are shown in Philippine time.</p>
+        <p className="text-xs text-slate-400 mb-4">Real changes are recorded when they occur. Simulated entries are labeled and do not represent actual visits, alert reads, or feeds. Times are shown in Philippine time.</p>
         <form className="flex flex-wrap gap-3 mb-5" onSubmit={event => { event.preventDefault(); setSearch(query.trim()); setPage(1) }}>
           <select aria-label="Filter by action" className="input-modern" style={{ width: 'auto' }} value={action} onChange={event => { setAction(event.target.value); setPage(1) }}>
-            <option value="">All actions</option><option value="create">Create</option><option value="update">Update</option><option value="delete">Delete</option>
+            <option value="">All actions</option><option value="create">Create</option><option value="update">Update</option><option value="delete">Delete</option><option value="visit">Visit</option><option value="read">Read</option><option value="auto_feed">Auto feed</option>
           </select>
           <select aria-label="Filter by user" className="input-modern" style={{ width: 'auto' }} value={username} onChange={event => { setUsername(event.target.value); setPage(1) }}>
             <option value="">All users</option>
@@ -151,7 +152,7 @@ export default function Logs() {
               <tbody>{logs.map(log => (
                 <tr key={log.id} className="border-b border-slate-500/20 align-top">
                   <td className="p-3 whitespace-nowrap">{timeText(log.occurred_at)}</td>
-                  <td className="p-3 font-medium">{log.username}</td>
+                  <td className="p-3 font-medium">{log.username}{log.is_simulated && <span className="block mt-1 text-xs font-semibold text-amber-400">SIMULATED</span>}</td>
                   <td className="p-3">{privilegeText(log.privileges)}</td>
                   <td className="p-3"><span className={`rounded-lg px-2 py-1 text-xs font-semibold ${log.action === 'create' ? 'bg-emerald-500/20 text-emerald-400' : log.action === 'delete' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>{fieldText(log.action)}</span></td>
                   <td className="p-3">{log.record_label}<span className="block text-xs text-slate-400">{fieldText(log.resource)} | #{log.record_id}</span></td>

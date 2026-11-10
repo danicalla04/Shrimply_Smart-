@@ -15,7 +15,7 @@ from .permissions import user_privileges, set_user_privileges
 class ActivityLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityLog
-        fields = ('id', 'username', 'privileges', 'action', 'resource', 'record_id', 'record_label', 'changes', 'occurred_at')
+        fields = ('id', 'username', 'privileges', 'action', 'resource', 'record_id', 'record_label', 'changes', 'occurred_at', 'is_simulated')
 
 
 class LogPagination(PageNumberPagination):
@@ -32,7 +32,7 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = ActivityLog.objects.all()
         params = self.request.query_params
-        if params.get('action') in ('create', 'update', 'delete'):
+        if params.get('action') in ('create', 'update', 'delete', 'visit', 'read', 'auto_feed'):
             queryset = queryset.filter(action=params['action'])
         if params.get('username'):
             queryset = queryset.filter(username=params['username'])
@@ -50,8 +50,8 @@ class UserAccountSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'first_name', 'last_name', 'email', 'name', 'is_admin', 'is_active', 'is_current_user', 'privileges')
-        read_only_fields = ('id', 'name', 'is_admin', 'is_current_user')
+        fields = ('id', 'username', 'first_name', 'last_name', 'email', 'name', 'is_admin', 'is_active', 'is_current_user', 'date_joined', 'privileges')
+        read_only_fields = ('id', 'name', 'is_admin', 'is_current_user', 'date_joined')
 
     def get_is_current_user(self, obj):
         return obj.pk == self.context['request'].user.pk
