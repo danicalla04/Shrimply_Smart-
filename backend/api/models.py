@@ -1045,12 +1045,14 @@ class ActivityLog(models.Model):
     username = models.CharField(max_length=150)
     privileges = models.JSONField(default=dict)
     action = models.CharField(max_length=10, choices=[
-        ('create', 'Create'), ('update', 'Update'), ('delete', 'Delete'), ('visit', 'Visit'),
+        ('create', 'Create'), ('update', 'Update'), ('delete', 'Delete'),
+        ('visit', 'Visit'), ('read', 'Read'),
     ])
     resource = models.CharField(max_length=100)
     record_id = models.CharField(max_length=100, blank=True)
     record_label = models.CharField(max_length=255, blank=True)
     changes = models.JSONField(default=list)
+    test_batch = models.CharField(max_length=64, blank=True, default='', db_index=True)
     occurred_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

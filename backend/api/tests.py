@@ -93,6 +93,38 @@ class RequestedAccountSeedTests(APITestCase):
         self.assertEqual(ActivityLog.objects.count(), 0)
 
 
+class TemporaryRayActivityTests(APITestCase):
+    def test_fixture_is_removable_without_touching_real_activity(self):
+        from io import StringIO
+        from zoneinfo import ZoneInfo
+        from django.core.management import call_command
+        from .models import ActivityLog
+
+        ray = User.objects.create_user('ray.goco', password='Ray-Example-7482', is_staff=True)
+        real = ActivityLog.objects.create(
+            actor=ray, username=ray.username, privileges={}, action='visit',
+            resource='page', record_id='/dashboard', record_label='Opened Dashboard',
+        )
+        call_command('seed_ray_test_activity', stdout=StringIO())
+        fixture = ActivityLog.objects.exclude(pk=real.pk)
+        self.assertEqual(fixture.count(), 25)
+        self.assertEqual(set(fixture.values_list('action', flat=True)), {'visit', 'read', 'update'})
+        dates = {value.astimezone(ZoneInfo('Asia/Manila')).date().isoformat() for value in fixture.values_list('occurred_at', flat=True)}
+        self.assertIn('2026-10-17', dates)
+        self.assertIn('2026-11-07', dates)
+        self.assertTrue(all(log.test_batch for log in fixture))
+
+        self.client.force_authenticate(ray)
+        response = self.client.get('/api/activity-logs/?username=ray.goco')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('test_batch', response.data['results'][0])
+
+        call_command('seed_ray_test_activity', stdout=StringIO())
+        self.assertEqual(ActivityLog.objects.count(), 26)
+        call_command('seed_ray_test_activity', delete=True, stdout=StringIO())
+        self.assertEqual(list(ActivityLog.objects.values_list('pk', flat=True)), [real.pk])
+
+
 class RemoveSimulatedActivityMigrationTests(TransactionTestCase):
     def test_migration_deletes_generated_history_and_keeps_real_history(self):
         old_target = [('api', '0029_activitylog_simulated_events')]

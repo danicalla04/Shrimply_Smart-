@@ -70,7 +70,7 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = ActivityLog.objects.all()
         params = self.request.query_params
-        if params.get('action') in ('create', 'update', 'delete', 'visit'):
+        if params.get('action') in ('create', 'update', 'delete', 'visit', 'read'):
             queryset = queryset.filter(action=params['action'])
         if params.get('username'):
             queryset = queryset.filter(username=params['username'])
