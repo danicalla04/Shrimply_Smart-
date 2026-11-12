@@ -304,7 +304,6 @@ void reportOutputState() {
 }
 
 void pollAutomaticStatus() {
-  unsigned long now = millis();
   if (WiFi.status() == WL_CONNECTED) {
     WiFiClient client;
     HTTPClient http;
@@ -322,15 +321,22 @@ void pollAutomaticStatus() {
           if ((long)(manualOverrideUntilMs - millis()) <= 0) {
             applyAutomaticStatus(color, buzzer == "ON");
           }
+          Serial.print("[Status] ");
+          Serial.print(color);
+          Serial.print(" buzzer ");
+          Serial.println(buzzer);
         }
       }
       http.end();
     }
   }
   // A lost website/WiFi connection is itself a red alarm after a short grace period.
-  if ((!statusReceived && now > STATUS_TIMEOUT_MS) ||
-      (statusReceived && now - lastStatusSuccessMs > STATUS_TIMEOUT_MS)) {
-    if ((long)(manualOverrideUntilMs - now) <= 0) applyAutomaticStatus("RED", true);
+  // Read millis() after the HTTP request: using the value from before a successful
+  // request underflows against lastStatusSuccessMs and falsely forces RED.
+  unsigned long checkedAt = millis();
+  if ((!statusReceived && checkedAt > STATUS_TIMEOUT_MS) ||
+      (statusReceived && checkedAt - lastStatusSuccessMs > STATUS_TIMEOUT_MS)) {
+    if ((long)(manualOverrideUntilMs - checkedAt) <= 0) applyAutomaticStatus("RED", true);
   }
   reportOutputState();
 }
