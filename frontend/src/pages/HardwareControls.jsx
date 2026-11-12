@@ -7,15 +7,16 @@ import { wemosApi } from '../services/wemos'
 import { hopperPercentFromDistance } from '../services/feeder'
 
 const OUTPUTS = [
-  { target: 'LED1', label: 'LED 1', pin: 'D9' },
-  { target: 'LED2', label: 'LED 2', pin: 'D2' },
-  { target: 'LED3', label: 'LED 3', pin: 'D8' },
+  { target: 'LED1', label: 'Blue LED', pin: 'D9' },
+  { target: 'LED2', label: 'Yellow LED', pin: 'D2' },
+  { target: 'LED3', label: 'Red LED', pin: 'D8' },
   { target: 'BUZZER', label: 'Buzzer', pin: 'D10' },
 ]
 
 export default function HardwareControls() {
   const { isAdmin, username, loaded } = usePrivileges()
   const [telemetry, setTelemetry] = useState(null)
+  const [automaticStatus, setAutomaticStatus] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [busy, setBusy] = useState('')
   const [lastRequest, setLastRequest] = useState({})
@@ -31,6 +32,12 @@ export default function HardwareControls() {
         if (active) setTelemetry(data)
       } catch {
         if (active) setTelemetry(null)
+      }
+      try {
+        const response = await authService.apiCall(`${API_BASE}/hardware/status/?format=json`)
+        if (response.ok && active) setAutomaticStatus(await response.json())
+      } catch {
+        if (active) setAutomaticStatus(null)
       }
       if (active) setNow(Date.now())
     }
@@ -83,6 +90,26 @@ export default function HardwareControls() {
     }
   }
 
+  const setFeederTest = async (connected) => {
+    setBusy('FEEDER')
+    setError('')
+    setMessage('')
+    try {
+      const response = await authService.apiCall(`${API_BASE}/hardware/feeder-test/`, {
+        method: 'POST',
+        body: JSON.stringify({ connected }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Could not update feeder test connection.')
+      setAutomaticStatus(data)
+      setMessage(connected ? 'Feeder connection test is active for 30 minutes.' : 'Feeder connection test ended.')
+    } catch (err) {
+      setError(err.message || 'Could not update feeder test connection.')
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div>
@@ -92,6 +119,22 @@ export default function HardwareControls() {
 
       {message && <p className="alert-modern alert-success-modern" role="status">{message}</p>}
       {error && <p className="alert-modern alert-critical-modern" role="alert">{error}</p>}
+
+      <section className="card p-5">
+        <h2 className="text-xl font-semibold mb-2">Automatic light status</h2>
+        <p className="text-sm text-slate-400 mb-4">Blue: all four sensors normal and feeder connected. Yellow: a sensor is outside its saved range or feed is low. Red: a device is disconnected or all four sensors are outside range. The buzzer stays on until the problem clears.</p>
+        <div className="flex flex-wrap gap-5 items-center">
+          <strong className="text-xl">{automaticStatus?.color || 'Checking...'}</strong>
+          <span>Buzzer: {automaticStatus?.buzzer || 'Unknown'}</span>
+          <span>Feeder: {automaticStatus?.feeder_test_connected ? 'Test connected' : automaticStatus?.feeder_connected ? 'Connected' : 'Disconnected'}</span>
+        </div>
+        {automaticStatus?.issues?.length > 0 && <p className="text-sm mt-3 text-slate-400">{automaticStatus.issues.join('; ')}</p>}
+        <div className="flex flex-wrap gap-3 mt-5">
+          <button type="button" className="btn-modern" disabled={Boolean(busy)} onClick={() => setFeederTest(true)}>Test feeder connected</button>
+          <button type="button" className="btn-secondary" disabled={Boolean(busy)} onClick={() => setFeederTest(false)}>End feeder test</button>
+        </div>
+        <p className="text-xs text-slate-400 mt-3">This tests the light logic without a feeder. It does not create feeder readings or run the motor.</p>
+      </section>
 
       <section className="card p-5">
         <h2 className="text-xl font-semibold mb-4">Receiver and feeder</h2>
@@ -108,7 +151,7 @@ export default function HardwareControls() {
 
       <section className="card p-5">
         <h2 className="text-xl font-semibold mb-2">LEDs and buzzer</h2>
-        <p className="text-sm text-slate-400 mb-5">Commands are queued for the WeMos to poll. The status below is the last request from this page, not device confirmation.</p>
+        <p className="text-sm text-slate-400 mb-5">Manual commands take priority for 30 seconds, then automatic status resumes. The status below is the last request from this page, not device confirmation.</p>
         <div className="grid gap-4 sm:grid-cols-2">
           {OUTPUTS.map(({ target, label, pin }) => (
             <div key={target} className="rounded-xl border border-slate-500/30 p-4">
@@ -121,7 +164,6 @@ export default function HardwareControls() {
           ))}
         </div>
         <div className="flex flex-wrap gap-3 mt-5">
-          <button type="button" className="btn-modern" disabled={Boolean(busy)} onClick={() => sendOutput('ALL', true)}>All ON</button>
           <button type="button" className="btn-secondary" disabled={Boolean(busy)} onClick={() => sendOutput('ALL', false)}>All OFF</button>
         </div>
       </section>

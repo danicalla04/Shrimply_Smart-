@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { useLanguage } from '../context/LanguageContext';
 import {
   DEFAULT_FEEDER_STATE,
+  capacityPercent,
   hopperPercentFromDistance,
   HOPPER_TEN_PERCENT_CM,
   fetchFeederState,
@@ -589,7 +590,8 @@ export default function Feeding() {
   const deviceConnected = Number.isFinite(telemetryAgeMs) && telemetryAgeMs >= 0 && telemetryAgeMs <= TELEMETRY_STALE_MS;
   const ultrasonicConnected = deviceConnected && ultrasonicDistance !== 'NA';
   const capPct = ultrasonicConnected ? hopperPercentFromDistance(ultrasonicDistance) : null
-  const lowThreshold = 10
+  const savedCapPct = capacityPercent(state)
+  const lowThreshold = Number(state.lowPercent ?? state.low_percent ?? 15)
   const lowFeed = capPct != null && capPct <= lowThreshold
 
   const prevDeviceConnected = useRef(null);
@@ -672,6 +674,14 @@ export default function Feeding() {
       {/* Status Overview */}
       <div className="grid-modern mb-8">
         <div className="metric-card-modern">
+          <div className="text-sm font-medium text-cyan-200/70 uppercase tracking-wide">Feed left in feeder</div>
+          <div className="mt-3 text-4xl font-bold text-cyan-100">{capPct == null ? `${savedCapPct}%` : `${capPct}%`}</div>
+          <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-700" role="progressbar" aria-label="Feed remaining" aria-valuenow={capPct ?? savedCapPct} aria-valuemin="0" aria-valuemax="100">
+            <div className={`h-full rounded-full ${((capPct ?? savedCapPct) <= lowThreshold) ? 'bg-amber-400' : 'bg-cyan-400'}`} style={{ width: `${capPct ?? savedCapPct}%` }} />
+          </div>
+          <p className="mt-2 text-xs text-cyan-200/60">{capPct == null ? 'Saved feed estimate; live feeder level unavailable' : 'Live level from ultrasonic sensor'}</p>
+        </div>
+        <div className="metric-card-modern">
           <div className="flex items-center justify-between mb-4">
             <div className="p-3 rounded-xl bg-gradient-to-r from-green-500 to-teal-500 text-white shadow-lg">
               <span className="text-2xl">⏰</span>
@@ -734,7 +744,7 @@ export default function Feeding() {
       )}
 
       {/* Empty Storage Alert */}
-      {(state.capacityCurrent || state.capacity_current) <= 0 && (
+      {(state.capacityCurrent ?? state.capacity_current) <= 0 && (
         <div className="mb-6 relative overflow-hidden rounded-2xl bg-gradient-to-r from-red-500 to-orange-500 p-6 shadow-lg border-2 border-red-600">
           <div className="absolute inset-0 opacity-10">
             <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full -mr-20 -mt-20"></div>

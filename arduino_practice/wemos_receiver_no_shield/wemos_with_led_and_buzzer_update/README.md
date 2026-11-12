@@ -28,8 +28,18 @@ The separate LED sketch's D11 and D12 pins cannot be reused: on this board **D11
 2. Upload this new sketch to the WeMos. Open Serial Monitor at **115200 baud**. Confirm Wi-Fi connects and the output command URL is printed.
 3. Sign in as `admin123`. Open **Hardware Controls**, directly below **Logs** in the sidebar.
 4. Press each LED's ON and OFF buttons, then the buzzer's ON and OFF buttons. Watch the physical output and Serial Monitor. The website reports that a command was **queued**; it does not measure the LED or buzzer state.
-5. Test **All ON** and **All OFF**. Test the servo separately with its ON and OFF buttons. Its original D7 wiring and command behavior are preserved.
+5. Press **Test feeder connected** if no real feeder is attached. This assumes a full hopper for 30 minutes without creating feeder readings or moving the motor. Press **End feeder test** when done.
+6. Manual LED and buzzer commands last 30 seconds before automatic status resumes. Test the servo separately with its ON and OFF buttons.
 
 The WeMos polls the new `/api/hardware/commands/poll/` endpoint. Sensor, feeder, and servo endpoints from the original receiver sketch stay in use. The output command endpoint is read-only for the device; only the signed-in `admin123` account can queue LED or buzzer commands.
 
 You can also test the outputs over USB Serial Monitor by sending `LED1 ON`, `LED1 OFF`, `LED2 ON`, `LED3 ON`, `BUZZER ON`, `BUZZER OFF`, `ALL ON`, or `ALL OFF` followed by a newline. The original servo serial commands (`L`, `R`, `L90`, `R45`, `0`) still work.
+
+## Automatic lights
+
+- D9 is blue, D2 is yellow, and D8 is red. Only one color lights at a time.
+- Blue and buzzer off: all four sensor values are within the saved Settings ranges, and feeder telemetry is connected with feed above its saved low percentage.
+- Yellow and buzzer on: one to three sensor values are outside range, or feed is at or below the feeder's low percentage.
+- Red and buzzer on: all four sensor values are outside range, a sensor is missing, sensor readings are over 30 seconds old, or feeder telemetry is missing or over 20 seconds old. A lost website connection also turns the WeMos red after 20 seconds.
+
+The WeMos checks the website every five seconds. The buzzer turns off once the status returns to blue. Hardware Controls shows the current decision and its reasons. The Feeding page shows live feed percentage from the ultrasonic sensor when connected and labels the saved estimate when it is not.

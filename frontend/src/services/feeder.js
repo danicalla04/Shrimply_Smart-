@@ -254,7 +254,7 @@ function normalizeFeederData(data) {
     intervalMinutes: data.interval_minutes || 60,
     portionGrams: data.portion_grams || 50,
     capacityMax: data.capacity_max || 1000,
-    capacityCurrent: data.capacity_current || 1000,
+    capacityCurrent: data.capacity_current ?? 1000,
     lowPercent: data.low_percent || 15,
     nextFeedAt: data.next_feed_at,
     lastFedAt: data.last_fed_at,
@@ -292,7 +292,7 @@ function normalizeFeederData(data) {
 // Local fallback functions (keep existing logic)
 export function capacityPercent(state) {
   const max = Math.max(1, state.capacityMax || state.capacity_max);
-  const current = state.capacityCurrent || state.capacity_current;
+  const current = state.capacityCurrent ?? state.capacity_current ?? 0;
   return Math.max(0, Math.min(100, Math.round((current / max) * 100)));
 }
 

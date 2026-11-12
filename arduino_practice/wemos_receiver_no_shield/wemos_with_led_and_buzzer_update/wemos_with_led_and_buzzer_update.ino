@@ -88,6 +88,7 @@ const char* SERVER_URL    = "http://187.77.139.246/sensor_api.php";
 const char* FEEDER_URL    = "http://187.77.139.246/feeder_api.php";
 const char* SERVO_CMD_URL = "http://187.77.139.246/servo_cmd_api.php";
 const char* OUTPUT_CMD_URL = "http://187.77.139.246/api/hardware/commands/poll/";
+const char* STATUS_URL = "http://187.77.139.246/api/hardware/status/";
 
 // ── SoftSerial (Arduino ↔ WeMos) — D5 / D6 ───────────────────────
 #define SW_RX_PIN D5
@@ -102,9 +103,9 @@ SoftwareSerial arduinoSerial(SW_RX_PIN, SW_TX_PIN);
 
 // On D1 R1, D11 aliases D7 (servo) and D12 aliases D6 (Arduino TX).
 // Rewire those two LEDs to D2 and D8. These LEDs are wired active HIGH.
-#define LED1_PIN D9
-#define LED2_PIN D2
-#define LED3_PIN D8
+#define LED1_PIN D9  // BLUE: everything normal
+#define LED2_PIN D2  // YELLOW: one or more warnings
+#define LED3_PIN D8  // RED: disconnected device or four bad sensors
 // GPIO15 must stay LOW at boot. Drive a passive buzzer through an NPN transistor.
 #define BUZZER_PIN D10
 
@@ -116,6 +117,9 @@ const float MS_PER_DEGREE = 10;   // 160° → 1600 ms. Raise if rotation is sho
 const unsigned long DISTANCE_INTERVAL_MS = 5000;
 const unsigned long SERVO_CMD_POLL_MS = 1500;
 const unsigned long OUTPUT_CMD_POLL_MS = 1500;
+const unsigned long STATUS_POLL_MS = 5000;
+const unsigned long MANUAL_TEST_MS = 30000;
+const unsigned long STATUS_TIMEOUT_MS = 20000;
 
 String receivedLine = "";
 String usbSerialBuffer = "";
@@ -123,6 +127,10 @@ unsigned long lastWifiAttempt = 0;
 unsigned long lastDistanceMs = 0;
 unsigned long lastServoCmdPollMs = 0;
 unsigned long lastOutputCmdPollMs = 0;
+unsigned long lastStatusPollMs = 0;
+unsigned long lastStatusSuccessMs = 0;
+unsigned long manualOverrideUntilMs = 0;
+bool statusReceived = false;
 bool servoBusy = false;
 String lastMotorState = "OFF";
 long lastWebServoCmdId = 0;
@@ -238,23 +246,71 @@ void setLed(uint8_t pin, bool on) {
 }
 
 void setBuzzer(bool on) {
+  if (buzzerOn == on) return;
   buzzerOn = on;
   if (on) tone(BUZZER_PIN, 2500);
   else noTone(BUZZER_PIN);
 }
 
+String outputField(const String& body, const String& key);
+
 bool applyOutputCommand(String target, bool on) {
   target.toUpperCase();
-  if (target == "LED1" || target == "ALL") setLed(LED1_PIN, on);
-  if (target == "LED2" || target == "ALL") setLed(LED2_PIN, on);
-  if (target == "LED3" || target == "ALL") setLed(LED3_PIN, on);
-  if (target == "BUZZER" || target == "ALL") setBuzzer(on);
   if (target != "LED1" && target != "LED2" && target != "LED3" &&
       target != "BUZZER" && target != "ALL") return false;
+  // Keep only one color lit, including during manual LED tests.
+  if (on && (target == "LED1" || target == "LED2" || target == "LED3" || target == "ALL")) {
+    setLed(LED1_PIN, false);
+    setLed(LED2_PIN, false);
+    setLed(LED3_PIN, false);
+  }
+  if (target == "LED1" || target == "ALL") setLed(LED1_PIN, on);
+  if (target == "LED2") setLed(LED2_PIN, on);
+  if (target == "LED3") setLed(LED3_PIN, on);
+  if (target == "BUZZER" || target == "ALL") setBuzzer(on);
+  manualOverrideUntilMs = millis() + MANUAL_TEST_MS;
   Serial.print("[Output] ");
   Serial.print(target);
   Serial.println(on ? " ON" : " OFF");
   return true;
+}
+
+void applyAutomaticStatus(const String& color, bool buzzer) {
+  setLed(LED1_PIN, color == "BLUE");
+  setLed(LED2_PIN, color == "YELLOW");
+  setLed(LED3_PIN, color == "RED");
+  setBuzzer(buzzer);
+}
+
+void pollAutomaticStatus() {
+  unsigned long now = millis();
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClient client;
+    HTTPClient http;
+    http.setTimeout(1800);
+    if (http.begin(client, STATUS_URL)) {
+      int code = http.GET();
+      if (code == 200) {
+        String body = http.getString();
+        String color = outputField(body, "color");
+        String buzzer = outputField(body, "buzzer");
+        if ((color == "BLUE" || color == "YELLOW" || color == "RED") &&
+            (buzzer == "ON" || buzzer == "OFF")) {
+          statusReceived = true;
+          lastStatusSuccessMs = millis();
+          if ((long)(manualOverrideUntilMs - millis()) <= 0) {
+            applyAutomaticStatus(color, buzzer == "ON");
+          }
+        }
+      }
+      http.end();
+    }
+  }
+  // A lost website/WiFi connection is itself a red alarm after a short grace period.
+  if ((!statusReceived && now > STATUS_TIMEOUT_MS) ||
+      (statusReceived && now - lastStatusSuccessMs > STATUS_TIMEOUT_MS)) {
+    if ((long)(manualOverrideUntilMs - now) <= 0) applyAutomaticStatus("RED", true);
+  }
 }
 
 bool handleSerialOutputCommand(String command) {
@@ -608,7 +664,7 @@ void setup() {
   Serial.println("================================");
   Serial.println("Pins (no conflict):");
   Serial.println("  SoftSerial D5/D6 | Trig D3 | Echo D4 | Servo D7");
-  Serial.println("  LED1 D9 | LED2 D2 | LED3 D8 | Buzzer D10");
+  Serial.println("  BLUE D9 | YELLOW D2 | RED D8 | Buzzer D10");
   Serial.println("Arduino link:");
   Serial.println("  Uno D10 → WeMos D5 (divider) | Uno D11 → D6 | GND");
   Serial.println("Servo USB cmds: L, R, L90, R45, 1-180, 0");
@@ -624,6 +680,8 @@ void setup() {
   Serial.println(SERVO_CMD_URL);
   Serial.print("[HTTP] Outputs -> ");
   Serial.println(OUTPUT_CMD_URL);
+  Serial.print("[HTTP] Status  -> ");
+  Serial.println(STATUS_URL);
   Serial.println("[WEB] Polling servo_cmd_api.php every 1.5s");
   Serial.println("[WEB] If you do NOT see this line, you uploaded the wrong tab (sketch_sepNNa).");
   Serial.println("[WEB] Open wemos_with_led_and_buzzer_update.ino");
@@ -632,6 +690,8 @@ void setup() {
   lastDistanceMs = millis();
   syncLastWebServoCmdId();
   syncOutputCommandId();
+  pollAutomaticStatus();
+  lastStatusPollMs = millis();
 
   Serial.println("Waiting for Arduino + website servo + USB cmds...");
   Serial.println("After upload, click Servo ON on the website once more.");
@@ -651,6 +711,10 @@ void loop() {
   if (!servoBusy && (now - lastOutputCmdPollMs >= OUTPUT_CMD_POLL_MS)) {
     lastOutputCmdPollMs = now;
     pollOutputCommands();
+  }
+  if (!servoBusy && (now - lastStatusPollMs >= STATUS_POLL_MS)) {
+    lastStatusPollMs = now;
+    pollAutomaticStatus();
   }
   if (!servoBusy && (now - lastDistanceMs >= DISTANCE_INTERVAL_MS)) {
     lastDistanceMs = now;

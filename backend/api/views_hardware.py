@@ -1,11 +1,15 @@
+from datetime import timedelta
+
 from django.http import HttpResponse
 from django.db import transaction
+from django.utils import timezone
 from django.views.decorators.http import require_GET
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from .models import ActivityLog, HardwareCommand
+from .hardware_status import assess_hardware_status
+from .models import ActivityLog, HardwareCommand, HardwareTestState
 from .permissions import user_privileges
 
 
@@ -50,3 +54,31 @@ def poll_hardware_command(request):
         return HttpResponse('NONE', content_type='text/plain')
     state = 'ON' if command.state else 'OFF'
     return HttpResponse(f'id={command.pk}&target={command.target}&state={state}', content_type='text/plain')
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def hardware_status(request):
+    """Current automatic output state. The ESP8266 reads the compact response."""
+    status = assess_hardware_status()
+    if request.GET.get('format') == 'json':
+        if not request.user.is_authenticated or request.user.username != 'admin123' or not request.user.is_staff:
+            return HttpResponse('Forbidden', status=403)
+        from django.http import JsonResponse
+        return JsonResponse(status)
+    return HttpResponse(f"color={status['color']}&buzzer={status['buzzer']}", content_type='text/plain')
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def set_feeder_test_connection(request):
+    if request.user.username != 'admin123' or not request.user.is_staff or not request.user.is_active:
+        return Response({'detail': 'Only admin123 can test the feeder connection.'}, status=403)
+    connected = request.data.get('connected')
+    if type(connected) is not bool:
+        return Response({'detail': 'connected must be true or false.'}, status=400)
+    state, _ = HardwareTestState.objects.get_or_create(pk=1)
+    state.feeder_connected_until = timezone.now() + timedelta(minutes=30) if connected else None
+    state.updated_by = request.user
+    state.save(update_fields=['feeder_connected_until', 'updated_by'])
+    return Response(assess_hardware_status())

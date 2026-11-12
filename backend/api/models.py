@@ -1070,3 +1070,10 @@ class HardwareCommand(models.Model):
 
     class Meta:
         ordering = ['id']
+
+
+class HardwareTestState(models.Model):
+    """Short-lived feeder connection override for admin123's LED tests."""
+
+    feeder_connected_until = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
