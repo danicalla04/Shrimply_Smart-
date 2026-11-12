@@ -13,9 +13,9 @@
  *   HC-SR04:               D3 Trig | D4 Echo
  *   Servo:                 D7 SIG  (external 5–6V + common GND)
  *   USB Serial:            hardware RX/TX only (115200)
- *   LED1:                  D9 (GPIO2, active LOW)
- *   LED2:                  D2 (GPIO16, active LOW)
- *   LED3:                  D8 (GPIO0, active LOW)
+ *   LED1:                  D9 (GPIO2, active HIGH)
+ *   LED2:                  D2 (GPIO16, active HIGH)
+ *   LED3:                  D8 (GPIO0, active HIGH)
  *   Buzzer driver:         D10 (GPIO15, active HIGH)
  *
  * ----------------------------------------------------------------
@@ -101,7 +101,7 @@ SoftwareSerial arduinoSerial(SW_RX_PIN, SW_TX_PIN);
 #define SERVO_PIN D7
 
 // On D1 R1, D11 aliases D7 (servo) and D12 aliases D6 (Arduino TX).
-// Rewire those two LEDs to D2 and D8. All LEDs are wired active LOW.
+// Rewire those two LEDs to D2 and D8. These LEDs are wired active HIGH.
 #define LED1_PIN D9
 #define LED2_PIN D2
 #define LED3_PIN D8
@@ -234,7 +234,7 @@ void servoHardStop() {
 }
 
 void setLed(uint8_t pin, bool on) {
-  digitalWrite(pin, on ? LOW : HIGH);
+  digitalWrite(pin, on ? HIGH : LOW);
 }
 
 void setBuzzer(bool on) {
@@ -588,10 +588,11 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   digitalWrite(TRIG_PIN, LOW);
 
-  // GPIO0/GPIO2 must be HIGH and GPIO15 LOW while booting.
-  digitalWrite(LED1_PIN, HIGH);
-  digitalWrite(LED2_PIN, HIGH);
-  digitalWrite(LED3_PIN, HIGH);
+  // Set active-HIGH LEDs OFF after boot. GPIO0/GPIO2 boot levels are
+  // determined by the physical circuit before setup() begins.
+  digitalWrite(LED1_PIN, LOW);
+  digitalWrite(LED2_PIN, LOW);
+  digitalWrite(LED3_PIN, LOW);
   pinMode(LED1_PIN, OUTPUT);
   pinMode(LED2_PIN, OUTPUT);
   pinMode(LED3_PIN, OUTPUT);

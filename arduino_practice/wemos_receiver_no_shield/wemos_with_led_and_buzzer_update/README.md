@@ -11,14 +11,14 @@ Open `wemos_with_led_and_buzzer_update.ino` in Arduino IDE and select **LOLIN(WE
 | HC-SR04 trigger | D3 | GPIO5 | WeMos D3 to TRIG |
 | HC-SR04 echo | D4 | GPIO4 | ECHO through a 5 V to 3.3 V divider to WeMos D4 |
 | Continuous servo signal | D7 | GPIO13 | Servo signal to D7; external 5 to 6 V supply |
-| LED 1 | D9 | GPIO2 | 3.3 V → 330 Ω resistor → LED anode; LED cathode → D9 |
-| LED 2 | D2 | GPIO16 | 3.3 V → 330 Ω resistor → LED anode; LED cathode → D2 |
-| LED 3 | D8 | GPIO0 | 3.3 V → 330 Ω resistor → LED anode; LED cathode → D8 |
+| LED 1 | D9 | GPIO2 | D9 → 330 Ω resistor → LED anode; LED cathode → ground |
+| LED 2 | D2 | GPIO16 | D2 → 330 Ω resistor → LED anode; LED cathode → ground |
+| LED 3 | D8 | GPIO0 | D8 → 330 Ω resistor → LED anode; LED cathode → ground |
 | Passive buzzer driver | D10 | GPIO15 | D10 → 1 kΩ resistor → NPN base; 10 kΩ base to ground; emitter to ground; collector to buzzer negative; buzzer positive to its rated supply |
 
 All grounds must be connected together: WeMos, Uno, ultrasonic sensor, servo supply, and buzzer supply. Use the existing external supply for the servo. Do not connect 5 V directly to any WeMos GPIO pin.
 
-The three LEDs are **active LOW**: the sketch drives their pins LOW to turn them on. D8/GPIO0 and D9/GPIO2 must be HIGH while the ESP8266 boots; wiring the LEDs to 3.3 V as shown supports that. D10/GPIO15 must be LOW while booting, so the buzzer uses the transistor with a base pulldown. If you use a magnetic buzzer instead of a passive piezo buzzer, add a flyback diode across it.
+The three LEDs are **active HIGH**, matching the tested wiring: the sketch drives their pins HIGH for ON and LOW for OFF. D8/GPIO0 and D9/GPIO2 must remain HIGH during the ESP8266 boot sequence, before the sketch runs. If the board fails to boot with an LED connected to either pin, use a transistor or buffer so the LED circuit does not pull the boot pin LOW. D10/GPIO15 must be LOW while booting, so the buzzer uses the transistor with a base pulldown. If you use a magnetic buzzer instead of a passive piezo buzzer, add a flyback diode across it.
 
 The separate LED sketch's D11 and D12 pins cannot be reused: on this board **D11 is the same GPIO as D7** (servo) and **D12 is the same GPIO as D6** (Arduino serial). Move those two LED wires to D2 and D8 before uploading the combined sketch.
 
