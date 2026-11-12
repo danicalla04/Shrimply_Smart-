@@ -22,7 +22,7 @@ const LED_MONITOR = [
 export default function HardwareControls() {
   const { isAdmin, username, loaded } = usePrivileges()
   const [telemetry, setTelemetry] = useState(null)
-  const [automaticStatus, setAutomaticStatus] = useState(null)
+  const [sensorStatus, setSensorStatus] = useState(null)
   const [outputReport, setOutputReport] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [busy, setBusy] = useState('')
@@ -42,9 +42,9 @@ export default function HardwareControls() {
       }
       try {
         const response = await authService.apiCall(`${API_BASE}/hardware/status/?format=json`)
-        if (active) setAutomaticStatus(response.ok ? await response.json() : null)
+        if (active) setSensorStatus(response.ok ? await response.json() : null)
       } catch {
-        if (active) setAutomaticStatus(null)
+        if (active) setSensorStatus(null)
       }
       try {
         const response = await authService.apiCall(`${API_BASE}/hardware/outputs/`)
@@ -69,8 +69,8 @@ export default function HardwareControls() {
     ? hopperPercentFromDistance(distance) : null
   const reportAge = outputReport?.reported_at ? now - new Date(outputReport.reported_at).getTime() : Infinity
   const reportLive = Number.isFinite(reportAge) && reportAge >= -5000 && reportAge <= 15000
-  const outputMismatch = reportLive && outputReport.mode === 'AUTO' && automaticStatus &&
-    (outputReport.color !== automaticStatus.color || outputReport.buzzer !== automaticStatus.buzzer)
+  const outputMismatch = reportLive && outputReport.mode === 'AUTO' && sensorStatus &&
+    (outputReport.color !== sensorStatus.color || outputReport.buzzer !== sensorStatus.buzzer)
 
   const sendOutput = async (target, state) => {
     setBusy(target)
@@ -107,26 +107,6 @@ export default function HardwareControls() {
     }
   }
 
-  const setFeederTest = async (connected) => {
-    setBusy('FEEDER')
-    setError('')
-    setMessage('')
-    try {
-      const response = await authService.apiCall(`${API_BASE}/hardware/feeder-test/`, {
-        method: 'POST',
-        body: JSON.stringify({ connected }),
-      })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.detail || 'Could not update feeder test connection.')
-      setAutomaticStatus(data)
-      setMessage(connected ? 'Feeder connection test is active for 30 minutes.' : 'Feeder connection test ended.')
-    } catch (err) {
-      setError(err.message || 'Could not update feeder test connection.')
-    } finally {
-      setBusy('')
-    }
-  }
-
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div>
@@ -158,39 +138,19 @@ export default function HardwareControls() {
           </div>
         </div>
         <p className="text-xs text-slate-400 mt-4">{reportLive ? `${outputReport.mode === 'MANUAL' ? 'Manual test' : 'Automatic'} · Last report ${new Date(outputReport.reported_at).toLocaleTimeString()}` : 'Upload the updated WeMos sketch to start reporting.'} The WeMos reports its output pin states; this does not detect a broken LED or wire.</p>
-        {outputMismatch && <p className="mt-3 rounded-lg bg-amber-500/15 p-3 text-sm text-amber-200" role="alert">Automatic status requests {automaticStatus.color} with buzzer {automaticStatus.buzzer}, but the WeMos reports {outputReport.color} with buzzer {outputReport.buzzer}. Check the WeMos connection and upload the latest sketch.</p>}
-      </section>
-
-      <section className="card p-5">
-        <h2 className="text-xl font-semibold mb-2">Automatic light status</h2>
-        <p className="text-sm text-slate-400 mb-4">Blue: all four sensors normal and feeder connected. Yellow: a sensor is outside its saved range or feed is low. Red: a device is disconnected or all four sensors are outside range. The buzzer stays on until the problem clears.</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-          {LED_MONITOR.map(({ color, label, pin, lit }) => {
-            const isOn = automaticStatus?.color === color
-            return <div key={color} className="rounded-xl border border-slate-500/30 p-4 text-center">
-              <span className={`block mx-auto mb-3 h-10 w-10 rounded-full ${isOn ? lit : 'bg-slate-600'}`} aria-hidden="true" />
-              <strong>{label} LED</strong>
-              <p className="text-sm text-slate-400">{pin} · {automaticStatus ? isOn ? 'ON' : 'OFF' : 'Unknown'}</p>
-            </div>
-          })}
-          <div className="rounded-xl border border-slate-500/30 p-4 text-center">
-            <span className={`block mx-auto mb-3 h-10 w-10 rounded-full ${automaticStatus?.buzzer === 'ON' ? 'bg-orange-400 shadow-[0_0_20px_#fb923c]' : 'bg-slate-600'}`} aria-hidden="true" />
-            <strong>Buzzer</strong>
-            <p className="text-sm text-slate-400">D10 · {automaticStatus?.buzzer || 'Unknown'}</p>
-          </div>
+        <div className="mt-4 rounded-xl border border-slate-500/30 p-4">
+          <h3 className="font-semibold mb-1">Why this color?</h3>
+          <p className="mb-2 text-xs text-slate-400">Blue: all four sensors in range. Yellow: one to three out of range. Red: all four out of range, or a sensor reading is missing or stale.</p>
+          {sensorStatus ? (
+            <>
+              <p className="text-sm text-slate-300">Sensors call for {sensorStatus.color.toLowerCase()} with buzzer {sensorStatus.buzzer.toLowerCase()}: {sensorStatus.reason}</p>
+              {sensorStatus.issues?.length > 0 && <ul className="mt-2 list-disc pl-5 text-sm text-slate-400">{sensorStatus.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
+              {reportLive && outputReport.mode === 'MANUAL' && <p className="mt-2 text-sm text-amber-200">Manual test is active; the reported LED can differ from the sensor status for up to 30 seconds.</p>}
+              {!reportLive && <p className="mt-2 text-sm text-amber-200">The WeMos has not reported recently, so its current LED state is unknown.</p>}
+            </>
+          ) : <p className="text-sm text-slate-400">Sensor status is unavailable.</p>}
         </div>
-        <p className="text-xs text-slate-400 mb-4">These lights show the automatic state the website is requesting. The WeMos monitor above shows what the board reports.</p>
-        <div className="flex flex-wrap gap-5 items-center">
-          <strong className="text-xl">{automaticStatus?.color || 'Checking...'}</strong>
-          <span>Buzzer: {automaticStatus?.buzzer || 'Unknown'}</span>
-          <span>Feeder: {automaticStatus?.feeder_test_connected ? 'Test connected' : automaticStatus?.feeder_connected ? 'Connected' : 'Disconnected'}</span>
-        </div>
-        {automaticStatus?.issues?.length > 0 && <p className="text-sm mt-3 text-slate-400">{automaticStatus.issues.join('; ')}</p>}
-        <div className="flex flex-wrap gap-3 mt-5">
-          <button type="button" className="btn-modern" disabled={Boolean(busy)} onClick={() => setFeederTest(true)}>Test feeder connected</button>
-          <button type="button" className="btn-secondary" disabled={Boolean(busy)} onClick={() => setFeederTest(false)}>End feeder test</button>
-        </div>
-        <p className="text-xs text-slate-400 mt-3">This tests the light logic without a feeder. It does not create feeder readings or run the motor.</p>
+        {outputMismatch && <p className="mt-3 rounded-lg bg-amber-500/15 p-3 text-sm text-amber-200" role="alert">Sensors call for {sensorStatus.color} with buzzer {sensorStatus.buzzer}, but the WeMos reports {outputReport.color} with buzzer {outputReport.buzzer}. Check the WeMos connection and upload the latest sketch.</p>}
       </section>
 
       <section className="card p-5">

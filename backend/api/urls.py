@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 from .views_reports import ReportViewSet
 from .views_logs import ActivityLogViewSet, UserAccountViewSet, account_access, record_page_visit
-from .views_hardware import create_hardware_command, poll_hardware_command, hardware_status, set_feeder_test_connection, hardware_outputs
+from .views_hardware import create_hardware_command, poll_hardware_command, hardware_status, hardware_outputs
 
 router = DefaultRouter()
 router.register(r'activity-logs', ActivityLogViewSet, basename='activity-log')
@@ -29,7 +29,6 @@ urlpatterns = [
     path('hardware/commands/', create_hardware_command, name='hardware-commands'),
     path('hardware/commands/poll/', poll_hardware_command, name='hardware-commands-poll'),
     path('hardware/status/', hardware_status, name='hardware-status'),
-    path('hardware/feeder-test/', set_feeder_test_connection, name='hardware-feeder-test'),
     path('hardware/outputs/', hardware_outputs, name='hardware-outputs'),
     path('', include(router.urls)),
     path('update-sensors/', views.update_sensors, name='update_sensors'),

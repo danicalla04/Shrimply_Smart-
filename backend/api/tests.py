@@ -159,10 +159,9 @@ class HardwareCommandTests(APITestCase):
 
 class HardwareStatusTests(APITestCase):
     def setUp(self):
-        from .models import FeederTelemetry, SensorReading
+        from .models import SensorReading
         self.admin = User.objects.create_user('admin123', is_staff=True)
         self.reading = SensorReading.objects.create(temperature=27, ph=7.2, turbidity=5, tds=200)
-        self.telemetry = FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=20)
 
     def status(self):
         response = self.client.get('/api/hardware/status/?format=json')
@@ -175,48 +174,33 @@ class HardwareStatusTests(APITestCase):
         self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
         Threshold.objects.create(parameter='ph', min_value=7.3, max_value=8.5)
         self.assertEqual((self.status()['color'], self.status()['out_of_range_count']), ('YELLOW', 1))
+        self.assertIn('pH 7.2 is outside 7.3 to 8.5.', self.status()['issues'])
         self.reading.temperature = 40
         self.reading.turbidity = 100
         self.reading.tds = 999
         self.reading.save()
         self.assertEqual((self.status()['color'], self.status()['buzzer']), ('RED', 'ON'))
 
-    def test_low_feed_and_disconnections_are_alarms(self):
+    def test_feeder_level_and_connection_do_not_affect_lights(self):
+        from .models import Feeder, FeederTelemetry
+        self.client.force_authenticate(self.admin)
+        Feeder.objects.create(capacity_current=0, low_percent=15)
+        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=32)
+        self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
+        FeederTelemetry.objects.all().delete()
+        self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
+
+    def test_missing_and_stale_sensor_readings_are_red(self):
         from datetime import timedelta
         from django.utils import timezone
-        from .models import Feeder
         self.client.force_authenticate(self.admin)
-        Feeder.objects.create(low_percent=15)
-        self.telemetry.distance_cm = 32
-        self.telemetry.save()
-        self.assertEqual(self.status()['color'], 'YELLOW')
-        self.telemetry.distance_cm = 20
-        self.telemetry.save()
         self.reading.ph = None
         self.reading.save()
         self.assertEqual(self.status()['color'], 'RED')
+        self.assertIn('pH reading is missing.', self.status()['issues'])
         self.reading.ph = 7.2
         self.reading.save()
-        self.telemetry.delete()
-        self.assertEqual(self.status()['color'], 'RED')
-        self.telemetry = self.telemetry.__class__.objects.create(device_id='wemos-feeder', distance_cm=20)
-        self.telemetry.__class__.objects.filter(pk=self.telemetry.pk).update(timestamp=timezone.now() - timedelta(seconds=21))
-        self.assertEqual(self.status()['color'], 'RED')
-
-    def test_feeder_test_connection_is_admin123_only_and_expires(self):
-        from datetime import timedelta
-        from django.utils import timezone
-        from .models import HardwareTestState
-        self.telemetry.delete()
-        url = '/api/hardware/feeder-test/'
-        self.assertIn(self.client.post(url, {'connected': True}, format='json').status_code, (401, 403))
-        self.client.force_authenticate(User.objects.create_user('ray.goco', is_staff=True))
-        self.assertEqual(self.client.post(url, {'connected': True}, format='json').status_code, 403)
-        self.client.force_authenticate(self.admin)
-        self.assertEqual(self.status()['color'], 'RED')
-        self.assertEqual(self.client.post(url, {'connected': True}, format='json').data['color'], 'BLUE')
-        self.assertTrue(self.status()['feeder_test_connected'])
-        HardwareTestState.objects.filter(pk=1).update(feeder_connected_until=timezone.now() - timedelta(seconds=1))
+        self.reading.__class__.objects.filter(pk=self.reading.pk).update(timestamp=timezone.now() - timedelta(seconds=31))
         self.assertEqual(self.status()['color'], 'RED')
         self.client.force_authenticate(None)
         self.assertEqual(self.client.get('/api/hardware/status/').content.decode(), 'color=RED&buzzer=ON')
