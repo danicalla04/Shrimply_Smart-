@@ -223,6 +223,28 @@ class HardwareStatusTests(APITestCase):
         self.assertEqual(self.client.get('/api/hardware/status/?format=json').status_code, 403)
 
 
+class HardwareOutputReportTests(APITestCase):
+    def test_device_report_is_visible_only_to_admin123(self):
+        from .models import HardwareOutputState
+        url = '/api/hardware/outputs/'
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(self.client.post(url, {'color': 'PURPLE', 'buzzer': 'OFF', 'mode': 'AUTO'}).status_code, 400)
+        self.assertEqual(self.client.post(url, {'color': 'BLUE', 'buzzer': 'OFF', 'mode': 'AUTO'}).status_code, 200)
+        self.assertEqual(self.client.post(url, {'color': 'RED', 'buzzer': 'ON', 'mode': 'MANUAL'}).status_code, 200)
+        self.assertEqual(HardwareOutputState.objects.count(), 1)
+
+        other_admin = User.objects.create_user('ray.goco', is_staff=True)
+        self.client.force_authenticate(other_admin)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.force_authenticate(User.objects.create_user('admin123', is_staff=True))
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['color'], 'RED')
+        self.assertEqual(response.data['buzzer'], 'ON')
+        self.assertEqual(response.data['mode'], 'MANUAL')
+        self.assertIsNotNone(response.data['reported_at'])
+
+
 class RemoveSimulatedActivityMigrationTests(TransactionTestCase):
     def test_migration_deletes_generated_history_and_keeps_real_history(self):
         old_target = [('api', '0029_activitylog_simulated_events')]

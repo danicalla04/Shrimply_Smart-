@@ -13,10 +13,17 @@ const OUTPUTS = [
   { target: 'BUZZER', label: 'Buzzer', pin: 'D10' },
 ]
 
+const LED_MONITOR = [
+  { color: 'BLUE', label: 'Blue', pin: 'D9', lit: 'bg-blue-500 shadow-[0_0_20px_#3b82f6]' },
+  { color: 'YELLOW', label: 'Yellow', pin: 'D2', lit: 'bg-yellow-400 shadow-[0_0_20px_#facc15]' },
+  { color: 'RED', label: 'Red', pin: 'D8', lit: 'bg-red-500 shadow-[0_0_20px_#ef4444]' },
+]
+
 export default function HardwareControls() {
   const { isAdmin, username, loaded } = usePrivileges()
   const [telemetry, setTelemetry] = useState(null)
   const [automaticStatus, setAutomaticStatus] = useState(null)
+  const [outputReport, setOutputReport] = useState(null)
   const [now, setNow] = useState(Date.now())
   const [busy, setBusy] = useState('')
   const [lastRequest, setLastRequest] = useState({})
@@ -39,6 +46,12 @@ export default function HardwareControls() {
       } catch {
         if (active) setAutomaticStatus(null)
       }
+      try {
+        const response = await authService.apiCall(`${API_BASE}/hardware/outputs/`)
+        if (active) setOutputReport(response.ok ? await response.json() : null)
+      } catch {
+        if (active) setOutputReport(null)
+      }
       if (active) setNow(Date.now())
     }
     refresh()
@@ -54,6 +67,8 @@ export default function HardwareControls() {
   const distance = Number(telemetry?.distance_cm)
   const capacity = online && telemetry?.distance_cm != null && Number.isFinite(distance)
     ? hopperPercentFromDistance(distance) : null
+  const reportAge = outputReport?.reported_at ? now - new Date(outputReport.reported_at).getTime() : Infinity
+  const reportLive = Number.isFinite(reportAge) && reportAge >= -5000 && reportAge <= 15000
 
   const sendOutput = async (target, state) => {
     setBusy(target)
@@ -119,6 +134,29 @@ export default function HardwareControls() {
 
       {message && <p className="alert-modern alert-success-modern" role="status">{message}</p>}
       {error && <p className="alert-modern alert-critical-modern" role="alert">{error}</p>}
+
+      <section className="card p-5" aria-live="polite">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h2 className="text-xl font-semibold">LED and buzzer monitor</h2>
+          <span className={`text-sm font-semibold ${reportLive ? 'text-emerald-400' : 'text-slate-400'}`}>{reportLive ? 'WeMos reporting' : 'No recent WeMos report'}</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {LED_MONITOR.map(({ color, label, pin, lit }) => {
+            const isOn = reportLive && outputReport.color === color
+            return <div key={color} className="rounded-xl border border-slate-500/30 p-4 text-center">
+              <span className={`block mx-auto mb-3 h-10 w-10 rounded-full ${isOn ? lit : 'bg-slate-600'}`} aria-hidden="true" />
+              <strong>{label} LED</strong>
+              <p className="text-sm text-slate-400">{pin} · {reportLive ? isOn ? 'ON' : 'OFF' : 'Unknown'}</p>
+            </div>
+          })}
+          <div className="rounded-xl border border-slate-500/30 p-4 text-center">
+            <span className={`block mx-auto mb-3 h-10 w-10 rounded-full ${reportLive && outputReport.buzzer === 'ON' ? 'bg-orange-400 shadow-[0_0_20px_#fb923c]' : 'bg-slate-600'}`} aria-hidden="true" />
+            <strong>Buzzer</strong>
+            <p className="text-sm text-slate-400">D10 · {reportLive ? outputReport.buzzer : 'Unknown'}</p>
+          </div>
+        </div>
+        <p className="text-xs text-slate-400 mt-4">{reportLive ? `${outputReport.mode === 'MANUAL' ? 'Manual test' : 'Automatic'} · Last report ${new Date(outputReport.reported_at).toLocaleTimeString()}` : 'Upload the updated WeMos sketch to start reporting.'} The WeMos reports its output pin states; this does not detect a broken LED or wire.</p>
+      </section>
 
       <section className="card p-5">
         <h2 className="text-xl font-semibold mb-2">Automatic light status</h2>

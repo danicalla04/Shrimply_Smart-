@@ -1077,3 +1077,12 @@ class HardwareTestState(models.Model):
 
     feeder_connected_until = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+
+
+class HardwareOutputState(models.Model):
+    """Latest output state reported by the WeMos, not a queued command."""
+
+    color = models.CharField(max_length=6, default='NONE')
+    buzzer_on = models.BooleanField(default=False)
+    mode = models.CharField(max_length=6, default='AUTO')
+    reported_at = models.DateTimeField(auto_now=True)

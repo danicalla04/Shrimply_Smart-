@@ -9,7 +9,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .hardware_status import assess_hardware_status
-from .models import ActivityLog, HardwareCommand, HardwareTestState
+from .models import ActivityLog, HardwareCommand, HardwareOutputState, HardwareTestState
 from .permissions import user_privileges
 
 
@@ -82,3 +82,33 @@ def set_feeder_test_connection(request):
     state.updated_by = request.user
     state.save(update_fields=['feeder_connected_until', 'updated_by'])
     return Response(assess_hardware_status())
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def hardware_outputs(request):
+    """WeMos reports its GPIO choices; admin123 reads the latest report."""
+    if request.method == 'POST':
+        color = str(request.data.get('color', '')).upper()
+        buzzer = str(request.data.get('buzzer', '')).upper()
+        mode = str(request.data.get('mode', '')).upper()
+        if color not in ('NONE', 'BLUE', 'YELLOW', 'RED') or buzzer not in ('ON', 'OFF') or mode not in ('AUTO', 'MANUAL'):
+            return Response({'detail': 'Invalid output report.'}, status=400)
+        state, _ = HardwareOutputState.objects.get_or_create(pk=1)
+        state.color = color
+        state.buzzer_on = buzzer == 'ON'
+        state.mode = mode
+        state.save(update_fields=['color', 'buzzer_on', 'mode', 'reported_at'])
+        return Response({'received': True})
+
+    if not request.user.is_authenticated or request.user.username != 'admin123' or not request.user.is_staff or not request.user.is_active:
+        return Response({'detail': 'Only admin123 can view output reports.'}, status=403)
+    state = HardwareOutputState.objects.filter(pk=1).first()
+    if not state:
+        return Response({'color': None, 'buzzer': None, 'mode': None, 'reported_at': None})
+    return Response({
+        'color': state.color,
+        'buzzer': 'ON' if state.buzzer_on else 'OFF',
+        'mode': state.mode,
+        'reported_at': state.reported_at,
+    })

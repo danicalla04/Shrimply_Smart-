@@ -89,6 +89,7 @@ const char* FEEDER_URL    = "http://187.77.139.246/feeder_api.php";
 const char* SERVO_CMD_URL = "http://187.77.139.246/servo_cmd_api.php";
 const char* OUTPUT_CMD_URL = "http://187.77.139.246/api/hardware/commands/poll/";
 const char* STATUS_URL = "http://187.77.139.246/api/hardware/status/";
+const char* OUTPUT_REPORT_URL = "http://187.77.139.246/api/hardware/outputs/";
 
 // ── SoftSerial (Arduino ↔ WeMos) — D5 / D6 ───────────────────────
 #define SW_RX_PIN D5
@@ -282,6 +283,26 @@ void applyAutomaticStatus(const String& color, bool buzzer) {
   setBuzzer(buzzer);
 }
 
+void reportOutputState() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  String color = digitalRead(LED1_PIN) == HIGH ? "BLUE" :
+                 digitalRead(LED2_PIN) == HIGH ? "YELLOW" :
+                 digitalRead(LED3_PIN) == HIGH ? "RED" : "NONE";
+  String mode = (long)(manualOverrideUntilMs - millis()) > 0 ? "MANUAL" : "AUTO";
+  String body = "color=" + color + "&buzzer=" + (buzzerOn ? "ON" : "OFF") + "&mode=" + mode;
+  WiFiClient client;
+  HTTPClient http;
+  http.setTimeout(1500);
+  if (!http.begin(client, OUTPUT_REPORT_URL)) return;
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  int code = http.POST(body);
+  if (code != 200) {
+    Serial.print("[Output] report HTTP ");
+    Serial.println(code);
+  }
+  http.end();
+}
+
 void pollAutomaticStatus() {
   unsigned long now = millis();
   if (WiFi.status() == WL_CONNECTED) {
@@ -311,6 +332,7 @@ void pollAutomaticStatus() {
       (statusReceived && now - lastStatusSuccessMs > STATUS_TIMEOUT_MS)) {
     if ((long)(manualOverrideUntilMs - now) <= 0) applyAutomaticStatus("RED", true);
   }
+  reportOutputState();
 }
 
 bool handleSerialOutputCommand(String command) {
@@ -682,6 +704,8 @@ void setup() {
   Serial.println(OUTPUT_CMD_URL);
   Serial.print("[HTTP] Status  -> ");
   Serial.println(STATUS_URL);
+  Serial.print("[HTTP] Report  -> ");
+  Serial.println(OUTPUT_REPORT_URL);
   Serial.println("[WEB] Polling servo_cmd_api.php every 1.5s");
   Serial.println("[WEB] If you do NOT see this line, you uploaded the wrong tab (sketch_sepNNa).");
   Serial.println("[WEB] Open wemos_with_led_and_buzzer_update.ino");

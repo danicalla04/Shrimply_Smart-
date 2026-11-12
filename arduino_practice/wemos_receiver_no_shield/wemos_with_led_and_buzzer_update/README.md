@@ -43,3 +43,5 @@ You can also test the outputs over USB Serial Monitor by sending `LED1 ON`, `LED
 - Red and buzzer on: all four sensor values are outside range, a sensor is missing, sensor readings are over 30 seconds old, or feeder telemetry is missing or over 20 seconds old. A lost website connection also turns the WeMos red after 20 seconds.
 
 The WeMos checks the website every five seconds. The buzzer turns off once the status returns to blue. Hardware Controls shows the current decision and its reasons. The Feeding page shows live feed percentage from the ultrasonic sensor when connected and labels the saved estimate when it is not.
+
+Hardware Controls also has an LED and buzzer monitor. The WeMos reports the states of its output pins every five seconds, including during manual tests. The page shows **Unknown** if no report arrives for 15 seconds. Upload the updated sketch for this monitor to work. The report describes GPIO output levels; it cannot detect a failed LED, buzzer, or wire.
