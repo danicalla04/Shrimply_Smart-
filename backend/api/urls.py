@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 from .views_reports import ReportViewSet
 from .views_logs import ActivityLogViewSet, UserAccountViewSet, account_access, record_page_visit
+from .views_hardware import create_hardware_command, poll_hardware_command
 
 router = DefaultRouter()
 router.register(r'activity-logs', ActivityLogViewSet, basename='activity-log')
@@ -25,6 +26,8 @@ router.register(r'growth-predictions', views.GrowthPredictionViewSet, basename='
 urlpatterns = [
     path('account-access/', account_access, name='account-access'),
     path('page-visits/', record_page_visit, name='page-visits'),
+    path('hardware/commands/', create_hardware_command, name='hardware-commands'),
+    path('hardware/commands/poll/', poll_hardware_command, name='hardware-commands-poll'),
     path('', include(router.urls)),
     path('update-sensors/', views.update_sensors, name='update_sensors'),
     path('update-feeder-telemetry/', views.update_feeder_telemetry, name='update_feeder_telemetry'),

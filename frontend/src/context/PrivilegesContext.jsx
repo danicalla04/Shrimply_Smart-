@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { authService } from '../services/auth'
 import API_BASE from '../services/apiConfig'
 
-const readOnly = { create: false, update: false, delete: false, isAdmin: false, loaded: false }
+const readOnly = { create: false, update: false, delete: false, isAdmin: false, username: null, loaded: false }
 const PrivilegesContext = createContext(readOnly)
 export const usePrivileges = () => useContext(PrivilegesContext)
 
@@ -14,7 +14,7 @@ export function PrivilegesProvider({ children }) {
       .then(async response => {
         if (!response.ok) { if (active) setPrivileges({ ...readOnly, loaded: true }); return }
         const user = await response.json()
-        if (active) setPrivileges({ ...readOnly, ...user.privileges, isAdmin: user.is_admin === true, loaded: true })
+        if (active) setPrivileges({ ...readOnly, ...user.privileges, isAdmin: user.is_admin === true, username: user.username, loaded: true })
       }).catch(() => { if (active) setPrivileges({ ...readOnly, loaded: true }) })
     return () => { active = false }
   }, [])

@@ -125,6 +125,38 @@ class TemporaryRayActivityTests(APITestCase):
         self.assertEqual(list(ActivityLog.objects.values_list('pk', flat=True)), [real.pk])
 
 
+class HardwareCommandTests(APITestCase):
+    def test_only_admin123_can_queue_output_commands_and_device_can_poll(self):
+        from .models import ActivityLog, HardwareCommand
+
+        admin123 = User.objects.create_user('admin123', password='Admin-Example-3812', is_staff=True)
+        other_admin = User.objects.create_user('ray.goco', password='Ray-Example-3812', is_staff=True)
+        url = '/api/hardware/commands/'
+        poll_url = '/api/hardware/commands/poll/'
+
+        self.assertIn(self.client.post(url, {'target': 'LED1', 'state': True}, format='json').status_code, (401, 403))
+        self.client.force_authenticate(other_admin)
+        self.assertEqual(self.client.post(url, {'target': 'LED1', 'state': True}, format='json').status_code, 403)
+        self.client.force_authenticate(admin123)
+        self.assertEqual(self.client.post(url, {'target': 'LED1', 'state': 'ON'}, format='json').status_code, 400)
+        self.assertEqual(self.client.post(url, {'target': 'SERVO', 'state': True}, format='json').status_code, 400)
+        self.assertFalse(HardwareCommand.objects.exists())
+
+        first = self.client.post(url, {'target': 'LED1', 'state': True}, format='json')
+        second = self.client.post(url, {'target': 'BUZZER', 'state': False}, format='json')
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(ActivityLog.objects.filter(resource='hardware command', username='admin123').count(), 2)
+
+        self.client.force_authenticate(None)
+        first_id = first.data['id']
+        second_id = second.data['id']
+        self.assertEqual(self.client.get(poll_url).content.decode(), f'id={first_id}&target=LED1&state=ON')
+        self.assertEqual(self.client.get(f'{poll_url}?after={first_id}').content.decode(), f'id={second_id}&target=BUZZER&state=OFF')
+        self.assertEqual(self.client.get(f'{poll_url}?after={second_id}').content.decode(), 'NONE')
+        self.assertEqual(self.client.get(f'{poll_url}?latest=1').content.decode(), f'id={second_id}')
+
+
 class RemoveSimulatedActivityMigrationTests(TransactionTestCase):
     def test_migration_deletes_generated_history_and_keeps_real_history(self):
         old_target = [('api', '0029_activitylog_simulated_events')]

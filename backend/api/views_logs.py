@@ -25,6 +25,7 @@ PAGE_LABELS = {
     '/weather': 'Weather',
     '/reports': 'Reports',
     '/logs': 'Logs',
+    '/hardware-controls': 'Hardware Controls',
 }
 
 

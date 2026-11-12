@@ -10,7 +10,6 @@ import {
   updateFeederSettings,
   toggleAutoFeeding,
   feedOnce,
-  logDummyFeed,
   refillFeeder,
   processAutoFeedTick,
   fetchFeedingHistory,
@@ -76,14 +75,8 @@ export default function Feeding() {
   const [feedTotal, setFeedTotal] = useState(0);
   const [activeTab, setActiveTab] = useState('controls');
   const [newDailyTime, setNewDailyTime] = useState('08:00');
-  const [servoState, setServoState] = useState('OFF');
   const [ultrasonicDistance, setUltrasonicDistance] = useState('NA');
-  const [wemosOnline, setWemosOnline] = useState(false);
   const [lastTelemetryTimestamp, setLastTelemetryTimestamp] = useState(null);
-  const [servoLoading, setServoLoading] = useState(false);
-  const [servoElapsed, setServoElapsed] = useState(0);
-  const dummyServoStartedAt = useRef(null);
-  const dummyServoTimer = useRef(null);
   const applyFeedingHistory = (history) => {
     const logs = Array.isArray(history) ? history : [];
     setFeedingHistory(logs);
@@ -375,51 +368,6 @@ export default function Feeding() {
   // Turning Auto Feeding on should immediately pull the freshest ML
   // recommendation and push it into the daily schedule, instead of leaving
   // whatever schedule (or none) was there before.
-  const finishDummyServo = async () => {
-    const started = dummyServoStartedAt.current;
-    if (!started) {
-      setServoState('OFF');
-      return;
-    }
-    dummyServoStartedAt.current = null;
-    if (dummyServoTimer.current) {
-      clearInterval(dummyServoTimer.current);
-      dummyServoTimer.current = null;
-    }
-    const seconds = (Date.now() - started) / 1000;
-    const grams = Math.round((seconds / 30) * 1000);
-    setServoState('OFF');
-    setServoElapsed(0);
-    if (grams <= 0) return;
-    try {
-      await logDummyFeed(grams, seconds);
-      const history = await fetchFeedingHistory(20);
-      applyFeedingHistory(history);
-      flash(`Saved ${(grams / 1000).toFixed(2)} kg to feeding history`, 'success');
-    } catch (error) {
-      console.error('Feed history save failed:', error);
-      flash(error.message || 'Could not save feeding history', 'error');
-    }
-  };
-
-  useEffect(() => () => {
-    if (dummyServoTimer.current) clearInterval(dummyServoTimer.current);
-  }, []);
-
-  const startDummyServo = () => {
-    if (dummyServoStartedAt.current) return;
-    dummyServoStartedAt.current = Date.now();
-    setServoState('ON');
-    setServoElapsed(0);
-    dummyServoTimer.current = setInterval(() => {
-      const startedAt = dummyServoStartedAt.current;
-      if (!startedAt) return;
-      const seconds = (Date.now() - startedAt) / 1000;
-      setServoState('ON');
-      setServoElapsed(seconds);
-    }, 250);
-  };
-
   const enableAutoFeedingWithMlPlan = async () => {
     setMlLoading(true);
     setMlError(null);
@@ -499,16 +447,6 @@ export default function Feeding() {
     // One-time schedule fetch
     fetchWemosData();
 
-    // Initial servo state only (distance waits for fresh telemetry)
-    (async () => {
-      try {
-        const servo = await wemosApi.getServoState().catch(() => null);
-        if (servo && !dummyServoStartedAt.current) setServoState(servo);
-      } catch {
-        // ignore
-      }
-    })();
-
     // Live feeder telemetry push (no polling)
     let ws = null;
     let reconnectTimeout = null;
@@ -519,7 +457,6 @@ export default function Feeding() {
         ws = new WebSocket(WS_URL);
 
         ws.onopen = () => {
-          setWemosOnline(true);
         };
 
         ws.onmessage = (event) => {
@@ -528,12 +465,6 @@ export default function Feeding() {
 
             if (data.timestamp) {
               setLastTelemetryTimestamp(data.timestamp);
-            }
-
-            const motor = (data.motor_state ?? data.motorState ?? data.servo_state ?? data.servoState);
-            if (!dummyServoStartedAt.current && motor !== undefined && motor !== null && String(motor).trim() !== '') {
-              const normalized = String(motor).trim().toUpperCase();
-              setServoState(normalized === 'ON' ? 'ON' : 'OFF');
             }
 
             if (data.distance_cm !== undefined) {
@@ -550,7 +481,6 @@ export default function Feeding() {
         };
 
         ws.onclose = () => {
-          setWemosOnline(false);
           reconnectTimeout = setTimeout(connectWebSocket, 5000);
         };
 
@@ -564,7 +494,6 @@ export default function Feeding() {
         };
       } catch (err) {
         console.warn('[WS_FEEDER] Could not connect:', err);
-        setWemosOnline(false);
         reconnectTimeout = setTimeout(connectWebSocket, 5000);
       }
     };
@@ -616,10 +545,6 @@ export default function Feeding() {
           }
           // Keep last distance if this row is a servo click with no new reading
         }
-      }
-      if (!wemosOnline && !dummyServoStartedAt.current) {
-        const servo = await wemosApi.getServoState().catch(() => null);
-        if (servo) setServoState(servo);
       }
     } catch {
       // ignore
@@ -917,105 +842,6 @@ export default function Feeding() {
               </div>
             </div>
 
-            {/* Hardware Controls - Servo and Ultrasonic */}
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-white via-orange-50 to-red-50 p-6 shadow-lg border border-orange-100">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-orange-200/20 to-transparent rounded-full -mr-16 -mt-16"></div>
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-xl font-bold text-slate-800 flex items-center">
-                  <span className="mr-2 text-2xl">⚙️</span>
-                  Hardware Controls
-                </h3>
-              </div>
-              <div className="space-y-4">
-                {/* Wemos Status */}
-                <div className="p-3 rounded-lg bg-white/60 backdrop-blur-sm border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700">Wemos Status:</span>
-                    <div className="flex items-center gap-2">
-                      <div className={`w-3 h-3 rounded-full animate-pulse ${deviceConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                      <span className="text-sm font-medium text-slate-700">
-                        {deviceConnected ? '🟢 Online' : '🔴 Offline'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    Telemetry age: {lastTelemetryTimestamp ? `${Math.round(telemetryAgeMs / 1000)}s` : 'No data'}
-                  </div>
-                </div>
-
-                {/* Ultrasonic Distance */}
-                <div className="p-3 rounded-lg bg-white/60 backdrop-blur-sm border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700">Ultrasonic Distance:</span>
-                    <span className="text-lg font-bold text-slate-800">
-                      {!deviceConnected || ultrasonicDistance === 'NA' || capPct == null
-                        ? 'Sensor disconnected'
-                        : `${capPct}%`}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Servo Control Buttons */}
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    className="relative overflow-hidden rounded-xl bg-gradient-to-r from-red-600 to-pink-600 text-white font-semibold py-3 px-4 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none flex items-center justify-center"
-                    onClick={() => {
-                      if (servoState !== 'ON') return;
-                      finishDummyServo();
-                    }}
-                    disabled={!privileges.update || servoLoading || servoState !== 'ON'}
-                  >
-                    {servoLoading && servoState === 'ON' ? (
-                      <>
-                        <span className="mr-2 animate-spin">⚙️</span>
-                        <span>Closing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="mr-2 text-lg">❌</span>
-                        <span>Servo OFF</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    className="relative overflow-hidden rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold py-3 px-4 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none flex items-center justify-center"
-                    onClick={() => {
-                      if (servoState === 'ON') return;
-                      startDummyServo();
-                    }}
-                    disabled={!privileges.update || servoLoading || servoState === 'ON'}
-                  >
-                    {servoLoading && servoState !== 'ON' ? (
-                      <>
-                        <span className="mr-2 animate-spin">⚙️</span>
-                        <span>Opening...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="mr-2 text-lg">✅</span>
-                        <span>Servo ON</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Current Servo State */}
-                <div className="p-3 rounded-lg bg-white/60 backdrop-blur-sm border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-slate-700">Servo State:</span>
-                    <span className={`text-lg font-bold flex items-center gap-2 ${servoState === 'ON' ? 'text-green-600' : 'text-red-600'}`}>
-                      <span className="text-xl">{servoState === 'ON' ? '✅' : '❌'}</span>
-                      {servoState}
-                    </span>
-                  </div>
-                  {servoState === 'ON' && (
-                    <div className="mt-2 text-xs font-semibold text-slate-700">
-                      {servoElapsed.toFixed(0)}s · {(servoElapsed / 30).toFixed(2)} kg
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         )}
 

@@ -1058,3 +1058,15 @@ class ActivityLog(models.Model):
     class Meta:
         ordering = ['-occurred_at', '-id']
         indexes = [models.Index(fields=['action', 'occurred_at']), models.Index(fields=['username', 'occurred_at'])]
+
+
+class HardwareCommand(models.Model):
+    TARGETS = [(name, name) for name in ('LED1', 'LED2', 'LED3', 'BUZZER', 'ALL')]
+
+    target = models.CharField(max_length=10, choices=TARGETS)
+    state = models.BooleanField()
+    requested_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']

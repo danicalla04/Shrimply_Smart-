@@ -12,6 +12,7 @@ import Alert from './pages/Alert'
 import About from './pages/About'
 import SystemSettings from './pages/SystemSettings'
 import Logs from './pages/Logs'
+import HardwareControls from './pages/HardwareControls'
 import Feeding from './pages/Feeding';
 import HistoryOverview from './pages/HistoryOverview';
 import GrowthDashboard from './pages/GrowthDashboard';
@@ -59,6 +60,11 @@ function App() {
             <Route path="/logs" element={
               <ProtectedRoute>
                 <DashboardLayout><Logs /></DashboardLayout>
+              </ProtectedRoute>
+            } />
+            <Route path="/hardware-controls" element={
+              <ProtectedRoute>
+                <DashboardLayout><HardwareControls /></DashboardLayout>
               </ProtectedRoute>
             } />
             <Route path="/settings" element={
