@@ -48,10 +48,10 @@ def assess_hardware_status(now=None):
                 out_of_range += 1
                 issues.append(f'{SENSOR_LABELS[parameter]} {value:g} is outside {minimum:g} to {maximum:g}.')
 
-    if disconnected or out_of_range == len(DEFAULT_RANGES):
+    if disconnected or out_of_range >= 3:
         color = 'RED'
         reason = ('A sensor reading is missing or stale.' if disconnected else
-                  'All four sensor readings are outside their saved ranges.')
+                  f'{out_of_range} sensor readings are outside their saved ranges.')
     elif out_of_range:
         color = 'YELLOW'
         reason = f'{out_of_range} sensor reading' + (' is' if out_of_range == 1 else 's are') + ' outside the saved ranges.'
@@ -61,7 +61,7 @@ def assess_hardware_status(now=None):
 
     return {
         'color': color,
-        'buzzer': 'OFF' if color == 'BLUE' else 'ON',
+        'buzzer': 'ON' if color == 'RED' else 'OFF',
         'reason': reason,
         'issues': issues,
         'out_of_range_count': out_of_range,

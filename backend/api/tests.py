@@ -173,13 +173,17 @@ class HardwareStatusTests(APITestCase):
         self.client.force_authenticate(self.admin)
         self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
         Threshold.objects.create(parameter='ph', min_value=7.3, max_value=8.5)
-        self.assertEqual((self.status()['color'], self.status()['out_of_range_count']), ('YELLOW', 1))
+        self.assertEqual((self.status()['color'], self.status()['buzzer'], self.status()['out_of_range_count']), ('YELLOW', 'OFF', 1))
         self.assertIn('pH 7.2 is outside 7.3 to 8.5.', self.status()['issues'])
         self.reading.temperature = 40
+        self.reading.save()
+        self.assertEqual((self.status()['color'], self.status()['buzzer'], self.status()['out_of_range_count']), ('YELLOW', 'OFF', 2))
         self.reading.turbidity = 100
+        self.reading.save()
+        self.assertEqual((self.status()['color'], self.status()['buzzer'], self.status()['out_of_range_count']), ('RED', 'ON', 3))
         self.reading.tds = 999
         self.reading.save()
-        self.assertEqual((self.status()['color'], self.status()['buzzer']), ('RED', 'ON'))
+        self.assertEqual((self.status()['color'], self.status()['buzzer'], self.status()['out_of_range_count']), ('RED', 'ON', 4))
 
     def test_feeder_level_and_connection_do_not_affect_lights(self):
         from .models import Feeder, FeederTelemetry

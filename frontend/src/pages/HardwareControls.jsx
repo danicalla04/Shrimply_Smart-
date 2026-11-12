@@ -140,7 +140,7 @@ export default function HardwareControls() {
         <p className="text-xs text-slate-400 mt-4">{reportLive ? `${outputReport.mode === 'MANUAL' ? 'Manual test' : 'Automatic'} · Last report ${new Date(outputReport.reported_at).toLocaleTimeString()}` : 'Upload the updated WeMos sketch to start reporting.'} The WeMos reports its output pin states; this does not detect a broken LED or wire.</p>
         <div className="mt-4 rounded-xl border border-slate-500/30 p-4">
           <h3 className="font-semibold mb-1">Why this color?</h3>
-          <p className="mb-2 text-xs text-slate-400">Blue: all four sensors in range. Yellow: one to three out of range. Red: all four out of range, or a sensor reading is missing or stale.</p>
+          <p className="mb-2 text-xs text-slate-400">Blue: all four sensors in range. Yellow: one or two out of range, buzzer off. Red: three or four out of range, or a sensor reading is missing or stale; buzzer on.</p>
           {sensorStatus ? (
             <>
               <p className="text-sm text-slate-300">Sensors call for {sensorStatus.color.toLowerCase()} with buzzer {sensorStatus.buzzer.toLowerCase()}: {sensorStatus.reason}</p>
