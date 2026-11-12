@@ -42,7 +42,7 @@ export default function HardwareControls() {
       }
       try {
         const response = await authService.apiCall(`${API_BASE}/hardware/status/?format=json`)
-        if (response.ok && active) setAutomaticStatus(await response.json())
+        if (active) setAutomaticStatus(response.ok ? await response.json() : null)
       } catch {
         if (active) setAutomaticStatus(null)
       }
@@ -69,6 +69,8 @@ export default function HardwareControls() {
     ? hopperPercentFromDistance(distance) : null
   const reportAge = outputReport?.reported_at ? now - new Date(outputReport.reported_at).getTime() : Infinity
   const reportLive = Number.isFinite(reportAge) && reportAge >= -5000 && reportAge <= 15000
+  const outputMismatch = reportLive && outputReport.mode === 'AUTO' && automaticStatus &&
+    (outputReport.color !== automaticStatus.color || outputReport.buzzer !== automaticStatus.buzzer)
 
   const sendOutput = async (target, state) => {
     setBusy(target)
@@ -156,11 +158,28 @@ export default function HardwareControls() {
           </div>
         </div>
         <p className="text-xs text-slate-400 mt-4">{reportLive ? `${outputReport.mode === 'MANUAL' ? 'Manual test' : 'Automatic'} · Last report ${new Date(outputReport.reported_at).toLocaleTimeString()}` : 'Upload the updated WeMos sketch to start reporting.'} The WeMos reports its output pin states; this does not detect a broken LED or wire.</p>
+        {outputMismatch && <p className="mt-3 rounded-lg bg-amber-500/15 p-3 text-sm text-amber-200" role="alert">Automatic status requests {automaticStatus.color} with buzzer {automaticStatus.buzzer}, but the WeMos reports {outputReport.color} with buzzer {outputReport.buzzer}. Check the WeMos connection and upload the latest sketch.</p>}
       </section>
 
       <section className="card p-5">
         <h2 className="text-xl font-semibold mb-2">Automatic light status</h2>
         <p className="text-sm text-slate-400 mb-4">Blue: all four sensors normal and feeder connected. Yellow: a sensor is outside its saved range or feed is low. Red: a device is disconnected or all four sensors are outside range. The buzzer stays on until the problem clears.</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          {LED_MONITOR.map(({ color, label, pin, lit }) => {
+            const isOn = automaticStatus?.color === color
+            return <div key={color} className="rounded-xl border border-slate-500/30 p-4 text-center">
+              <span className={`block mx-auto mb-3 h-10 w-10 rounded-full ${isOn ? lit : 'bg-slate-600'}`} aria-hidden="true" />
+              <strong>{label} LED</strong>
+              <p className="text-sm text-slate-400">{pin} · {automaticStatus ? isOn ? 'ON' : 'OFF' : 'Unknown'}</p>
+            </div>
+          })}
+          <div className="rounded-xl border border-slate-500/30 p-4 text-center">
+            <span className={`block mx-auto mb-3 h-10 w-10 rounded-full ${automaticStatus?.buzzer === 'ON' ? 'bg-orange-400 shadow-[0_0_20px_#fb923c]' : 'bg-slate-600'}`} aria-hidden="true" />
+            <strong>Buzzer</strong>
+            <p className="text-sm text-slate-400">D10 · {automaticStatus?.buzzer || 'Unknown'}</p>
+          </div>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">These lights show the automatic state the website is requesting. The WeMos monitor above shows what the board reports.</p>
         <div className="flex flex-wrap gap-5 items-center">
           <strong className="text-xl">{automaticStatus?.color || 'Checking...'}</strong>
           <span>Buzzer: {automaticStatus?.buzzer || 'Unknown'}</span>
