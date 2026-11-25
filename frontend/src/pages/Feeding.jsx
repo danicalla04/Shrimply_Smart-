@@ -6,8 +6,8 @@ import {
   DEFAULT_FEEDER_STATE,
   capacityPercent,
   hopperPercentFromDistance,
-  HOPPER_TEN_PERCENT_CM,
   fetchFeederState,
+  fetchDispenseSummary,
   updateFeederSettings,
   toggleAutoFeeding,
   feedOnce,
@@ -74,6 +74,7 @@ export default function Feeding() {
   const [now, setNow] = useState(Date.now());
   const [feedingHistory, setFeedingHistory] = useState([]);
   const [feedTotal, setFeedTotal] = useState(0);
+  const [dispenseSummary, setDispenseSummary] = useState(null);
   const [activeTab, setActiveTab] = useState('controls');
   const [newDailyTime, setNewDailyTime] = useState('08:00');
   const [ultrasonicDistance, setUltrasonicDistance] = useState('NA');
@@ -463,11 +464,13 @@ export default function Feeding() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [feederState, history] = await Promise.all([
+        const [feederState, history, summary] = await Promise.all([
           fetchFeederState(),
-          fetchFeedingHistory(20)
+          fetchFeedingHistory(20),
+          fetchDispenseSummary().catch(() => null)
         ]);
         setState(feederState);
+        if (summary) setDispenseSummary(summary);
         setPortionDraft(String(gramsToKgInput(feederState.portionGrams)));
         setRateDraft(String(feederState.feedRateGramsPerMinute));
         setCapacityDraft(String(gramsToKgInput(feederState.capacityMax)));
@@ -514,6 +517,12 @@ export default function Feeding() {
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+
+            if (data.type === 'feeding_log') {
+              fetchDispenseSummary().then(setDispenseSummary).catch(() => {});
+              fetchFeedingHistory(20).then(applyFeedingHistory).catch(() => {});
+              return;
+            }
 
             if (data.timestamp) {
               setLastTelemetryTimestamp(data.timestamp);
@@ -633,6 +642,10 @@ export default function Feeding() {
     setNow(Date.now());
   }, 1000);
 
+  useInterval(() => {
+    fetchDispenseSummary().then(setDispenseSummary).catch(() => {});
+  }, 10000);
+
   useEffect(() => {
     lastTelemetryRef.current = lastTelemetryTimestamp;
   }, [lastTelemetryTimestamp]);
@@ -642,16 +655,13 @@ export default function Feeding() {
   const ultrasonicConnected = deviceConnected && ultrasonicDistance !== 'NA';
   const capPct = ultrasonicConnected ? hopperPercentFromDistance(ultrasonicDistance) : null
   const savedCapPct = capacityPercent(state)
-  const lowThreshold = Number(state.lowPercent ?? state.low_percent ?? 15)
-  const lowFeed = capPct != null && capPct <= lowThreshold
+  const lowThreshold = 15
+  const displayPct = capPct ?? savedCapPct
+  const lowFeed = displayPct <= lowThreshold
 
   const prevDeviceConnected = useRef(null);
   const prevLowFeed = useRef(null);
   const prevUltrasonicOk = useRef(null);
-  const prevUltrasonicLow = useRef(null);
-  const ULTRASONIC_LOW_CM = HOPPER_TEN_PERCENT_CM;
-  const ultrasonicCm = Number(ultrasonicDistance);
-  const ultrasonicLow = deviceConnected && Number.isFinite(ultrasonicCm) && ultrasonicCm >= ULTRASONIC_LOW_CM;
 
   useEffect(() => {
     if (prevDeviceConnected.current === true && deviceConnected === false) {
@@ -690,27 +700,14 @@ export default function Feeding() {
 
     if (alertsEnabled && lowFeedEnabled) {
       if (prevLowFeed.current === false && lowFeed === true) {
-        flash(t('lowFeed') || `Low feed: ${capPct}% remaining`, 'error');
+        flash(`Low feed: ${displayPct}% remaining. Refill the feeder.`, 'error');
         if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('🍤 Low Feed', { body: `Feeder capacity low (${capPct}%).` });
+          new Notification('Feeder Low', { body: `Feeder capacity low (${displayPct}%).` });
         }
       }
     }
     prevLowFeed.current = lowFeed;
-  }, [lowFeed, capPct, state.alertsEnabled, state.alerts_enabled, state.lowFeedAlert, state.low_feed_alert, t]);
-
-  useEffect(() => {
-    const alertsEnabled = (state.alertsEnabled !== false && state.alerts_enabled !== false);
-    const lowFeedEnabled = (state.lowFeedAlert !== false && state.low_feed_alert !== false);
-    if (alertsEnabled && lowFeedEnabled && prevUltrasonicLow.current === false && ultrasonicLow === true) {
-      const msg = `Feeder is low on feeds — please refill (${ultrasonicCm} cm).`;
-      flash(msg, 'error');
-      if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification('🍤 Feeder Low', { body: msg });
-      }
-    }
-    prevUltrasonicLow.current = ultrasonicLow;
-  }, [ultrasonicLow, ultrasonicCm, state.alertsEnabled, state.alerts_enabled, state.lowFeedAlert, state.low_feed_alert]);
+  }, [lowFeed, displayPct, state.alertsEnabled, state.alerts_enabled, state.lowFeedAlert, state.low_feed_alert]);
 
   const autoFeedingOn = state.autoEnabled === true || state.auto_enabled === true;
 
@@ -728,7 +725,7 @@ export default function Feeding() {
           <div className="text-sm font-medium text-cyan-200/70 uppercase tracking-wide">Feed left in feeder</div>
           <div className="mt-3 text-4xl font-bold text-cyan-100">{capPct == null ? `${savedCapPct}%` : `${capPct}%`}</div>
           <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-700" role="progressbar" aria-label="Feed remaining" aria-valuenow={capPct ?? savedCapPct} aria-valuemin="0" aria-valuemax="100">
-            <div className={`h-full rounded-full ${((capPct ?? savedCapPct) <= lowThreshold) ? 'bg-amber-400' : 'bg-cyan-400'}`} style={{ width: `${capPct ?? savedCapPct}%` }} />
+            <div className={`h-full rounded-full ${lowFeed ? 'bg-red-500' : 'bg-cyan-400'}`} style={{ width: `${displayPct}%` }} />
           </div>
           <p className="mt-2 text-xs text-cyan-200/60">{capPct == null ? 'Saved feed estimate; live feeder level unavailable' : 'Live level from ultrasonic sensor'}</p>
         </div>
@@ -795,7 +792,7 @@ export default function Feeding() {
       )}
 
       {/* Empty Storage Alert */}
-      {(state.capacityCurrent ?? state.capacity_current) <= 0 && (
+      {displayPct <= 0 && (
         <div className="mb-6 relative overflow-hidden rounded-2xl bg-gradient-to-r from-red-500 to-orange-500 p-6 shadow-lg border-2 border-red-600">
           <div className="absolute inset-0 opacity-10">
             <div className="absolute top-0 right-0 w-40 h-40 bg-white rounded-full -mr-20 -mt-20"></div>
@@ -813,6 +810,7 @@ export default function Feeding() {
                   setState(updatedState);
                 } catch (error) {
                   console.error('Failed to refill feeder:', error);
+                  flash(error.message || 'Could not update feed estimate');
                 }
               }}
               className="ml-auto px-6 py-3 bg-white text-red-600 font-bold rounded-xl hover:bg-red-50 transition-all shadow-lg whitespace-nowrap"
@@ -820,6 +818,18 @@ export default function Feeding() {
               🔄 {t('refillNow') || 'Refill Now'}
             </button>
           </div>
+        </div>
+      )}
+
+      {lowFeed && displayPct > 0 && (
+        <div className="mb-6 rounded-2xl border-2 border-red-500 bg-red-500/15 p-5 text-red-100" role="alert">
+          <strong>Low feed: {displayPct}% remaining</strong>
+          <p className="mt-1 text-sm">The feeder is at or below 15%. Refill it soon. The red LED and buzzer stay on until the level recovers.</p>
+          <p className="mt-1 text-xs">{capPct == null ? 'Based on the saved feed estimate; live ultrasonic level is unavailable.' : 'Based on the live ultrasonic reading.'}</p>
+          <button type="button" disabled={!privileges.update} onClick={async () => {
+            try { setState(await refillFeeder()); }
+            catch (error) { flash(error.message || 'Could not update feed estimate'); }
+          }} className="mt-3 rounded-lg bg-white px-4 py-2 text-sm font-bold text-red-700 disabled:opacity-50">Mark refilled after loading feed</button>
         </div>
       )}
 
@@ -849,6 +859,15 @@ export default function Feeding() {
       <div className="space-y-6">
         {activeTab === 'controls' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="card p-6 lg:col-span-2" aria-live="polite">
+              <h3 className="text-xl font-bold mb-3">Estimated feed sent to pond</h3>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div><p className="text-sm text-cyan-200/70">Today</p><p className="text-3xl font-bold text-cyan-100">{dispenseSummary ? `${(Number(dispenseSummary.today_grams) / 1000).toFixed(3)} kg` : 'Loading...'}</p></div>
+                <div><p className="text-sm text-cyan-200/70">Last feeding command</p><p className="text-2xl font-bold text-cyan-100">{dispenseSummary?.last_grams != null ? `${Number(dispenseSummary.last_grams).toLocaleString()} g` : 'None yet'}</p>{dispenseSummary?.last_at && <p className="mt-1 text-xs text-cyan-200/60">{new Date(dispenseSummary.last_at).toLocaleString()}</p>}</div>
+                <div><p className="text-sm text-cyan-200/70">All recorded feed</p><p className="text-2xl font-bold text-cyan-100">{dispenseSummary ? `${(Number(dispenseSummary.total_grams) / 1000).toFixed(3)} kg` : 'Loading...'}</p></div>
+              </div>
+              <p className="mt-3 text-xs text-cyan-200/60">Updates when a feeding command is recorded. Grams are estimated from saved feed amounts; a load cell is needed to measure what physically reaches the pond.</p>
+            </div>
             {/* Auto Mode Toggle */}
             <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-white via-green-50 to-emerald-50 p-6 shadow-lg border border-green-100">
               <div className="absolute bottom-0 left-0 w-40 h-40 bg-gradient-to-tr from-green-200/20 to-transparent rounded-full -ml-20 -mb-20"></div>

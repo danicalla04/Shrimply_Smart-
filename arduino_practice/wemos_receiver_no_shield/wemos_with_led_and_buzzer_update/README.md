@@ -37,10 +37,10 @@ You can also test the outputs over USB Serial Monitor by sending `LED1 ON`, `LED
 ## Automatic lights
 
 - D9 is blue, D2 is yellow, and D8 is red. Only one color lights at a time.
-- Blue and buzzer off: all four sensor values are within the saved Settings ranges.
-- Yellow and buzzer off: one or two sensor values are outside their saved ranges.
-- Red and buzzer on: three or four sensor values are outside range, a sensor reading is missing, or sensor readings are over 30 seconds old. A lost website connection also turns the WeMos red after 20 seconds because current sensor status is unavailable.
+- Blue and buzzer off: all four sensor values are within the saved Settings ranges and feed is above 15%.
+- Yellow and buzzer off: one or two sensor values are outside their saved ranges while feed is above 15%.
+- Red and buzzer on: three or four sensor values are outside range, a sensor reading is missing or stale, or feeder level is 15% or less. A lost website connection also turns the WeMos red after 20 seconds because current status is unavailable.
 
-The WeMos checks the website every five seconds. In automatic mode, the buzzer is on only for red and turns off when the status returns to yellow or blue. The LED and buzzer monitor shows the board's reported color and the sensor readings that led to it. Feeder capacity, feeder connection, and feeding activity do not affect the LEDs or buzzer.
+The WeMos checks the website every five seconds. In automatic mode, the buzzer is on only for red and turns off when the status returns to yellow or blue. The LED and buzzer monitor shows the board's reported color and the sensor or feeder condition that led to it. Fresh ultrasonic level is used first; saved hopper capacity is the fallback when live level is unavailable. The Feeding controls show an estimated gram total from feeding commands. The sketch has no load cell, so it cannot measure the actual weight delivered to the pond.
 
 Hardware Controls also has an LED and buzzer monitor. The WeMos reports the states of its output pins every five seconds, including during manual tests. The page shows **Unknown** if no report arrives for 15 seconds. Upload the updated sketch for this monitor to work. The report describes GPIO output levels; it cannot detect a failed LED, buzzer, or wire.

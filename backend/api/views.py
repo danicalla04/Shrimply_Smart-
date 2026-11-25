@@ -26,6 +26,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from .alert_service import AlertService
 from .feeder_servo_scheduler import cancel_future_servo_jobs, enqueue_servo_job
+from .feeder_level import LOW_FEED_PERCENT, fresh_hopper_percent
 import requests
 import os
 import random
@@ -136,10 +137,13 @@ def _lock_feeder_alerts_on(feeder):
 
 def _maybe_alert_feeder_capacity_low(feeder: Feeder):
     _lock_feeder_alerts_on(feeder)
+    if fresh_hopper_percent() is not None:
+        AlertService.check_feeder_level()
+        return None
 
     cap_max = float(getattr(feeder, 'capacity_max', 0) or 0)
     cap_cur = float(getattr(feeder, 'capacity_current', 0) or 0)
-    low_percent = int(getattr(feeder, 'low_percent', 0) or 0)
+    low_percent = int(LOW_FEED_PERCENT)
 
     if cap_max <= 0:
         return None
@@ -693,11 +697,16 @@ class SensorCalibrationViewSet(viewsets.ModelViewSet):
 class AlertViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # PHP inserts bypass Django signals; reconcile before displaying alert history.
+        feeder = Feeder.objects.first()
         AlertService.recover_alerts(
             sensor_reading=SensorReading.objects.first(),
             feeder_telemetry=FeederTelemetry.objects.first(),
-            feeder=Feeder.objects.first(),
+            feeder=feeder,
         )
+        if fresh_hopper_percent() is not None:
+            AlertService.check_feeder_level()
+        elif feeder is not None and not Alert.objects.filter(parameter='feeder_capacity', resolved=False).exists():
+            _maybe_alert_feeder_capacity_low(feeder)
         return super().get_queryset()
 
     queryset = Alert.objects.all()
@@ -708,7 +717,7 @@ class AlertViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def unresolved(self, request):
         """Get unresolved alerts (paginated)"""
-        alerts = self.queryset.filter(resolved=False).order_by('-timestamp')
+        alerts = self.get_queryset().filter(resolved=False).order_by('-timestamp')
         page = self.paginate_queryset(alerts)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -720,7 +729,7 @@ class AlertViewSet(viewsets.ModelViewSet):
     def active(self, request):
         """Get currently active alerts (last 24 hours, unresolved, paginated)"""
         cutoff = timezone.now() - timedelta(hours=24)
-        alerts = self.queryset.filter(resolved=False, timestamp__gte=cutoff).order_by('-timestamp')
+        alerts = self.get_queryset().filter(resolved=False, timestamp__gte=cutoff).order_by('-timestamp')
         page = self.paginate_queryset(alerts)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -1079,6 +1088,8 @@ class FeederViewSet(viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         for feeder in self.get_queryset():
             _lock_feeder_alerts_on(feeder)
+            if fresh_hopper_percent() is None and not Alert.objects.filter(parameter='feeder_capacity', resolved=False).exists():
+                _maybe_alert_feeder_capacity_low(feeder)
         return super().list(request, *args, **kwargs)
 
     @action(detail=False, methods=['post'])
@@ -1326,6 +1337,24 @@ class FeederViewSet(viewsets.ModelViewSet):
             return Response({'logs': serializer.data, 'total': feeder.feeding_logs.count()})
         except Exception as e:
             return Response({'error': str(e)}, status=500)
+
+    @action(detail=False, methods=['get'])
+    def dispense_summary(self, request):
+        """Grams requested by feeding commands, not measured by a load cell."""
+        feeder = self.queryset.first()
+        if feeder is None:
+            return Response({'today_grams': 0, 'total_grams': 0, 'last_grams': None, 'last_at': None, 'count_today': 0})
+        logs = feeder.feeding_logs.exclude(notes__startswith='Applied ML today feed plan:').exclude(notes__startswith='Servo feed:')
+        today_logs = logs.filter(timestamp__date=timezone.localdate())
+        latest = logs.first()
+        return Response({
+            'today_grams': today_logs.aggregate(total=Sum('portion_grams'))['total'] or 0,
+            'total_grams': logs.aggregate(total=Sum('portion_grams'))['total'] or 0,
+            'last_grams': latest.portion_grams if latest else None,
+            'last_at': latest.timestamp.isoformat() if latest else None,
+            'count_today': today_logs.count(),
+            'basis': 'estimated_from_commands',
+        })
 
     @action(detail=False, methods=['get'])
     def smart_recommendations(self, request):

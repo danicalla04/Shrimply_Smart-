@@ -5,9 +5,25 @@ from channels.layers import get_channel_layer
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from .models import FeederTelemetry, SensorReading, Feeder
+from .models import FeederTelemetry, FeedingLog, SensorReading, Feeder
 
 logger = logging.getLogger(__name__)
+
+
+@receiver(post_save, sender=FeedingLog)
+def broadcast_feeding_log(sender, instance: FeedingLog, created: bool, **kwargs):
+    if not created or instance.notes.startswith(('Applied ML today feed plan:', 'Servo feed:')):
+        return
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    try:
+        async_to_sync(layer.group_send)('feeder_updates', {
+            'type': 'feeder_telemetry',
+            'data': {'type': 'feeding_log', 'id': instance.pk, 'timestamp': instance.timestamp.isoformat()},
+        })
+    except Exception as exc:
+        logger.warning('[WS_FEEDER] Failed to broadcast feed log: %s', exc)
 
 
 @receiver(post_save, sender=FeederTelemetry)

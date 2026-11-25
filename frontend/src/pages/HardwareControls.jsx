@@ -140,17 +140,17 @@ export default function HardwareControls() {
         <p className="text-xs text-slate-400 mt-4">{reportLive ? `${outputReport.mode === 'MANUAL' ? 'Manual test' : 'Automatic'} · Last report ${new Date(outputReport.reported_at).toLocaleTimeString()}` : 'Upload the updated WeMos sketch to start reporting.'} The WeMos reports its output pin states; this does not detect a broken LED or wire.</p>
         <div className="mt-4 rounded-xl border border-slate-500/30 p-4">
           <h3 className="font-semibold mb-1">Why this color?</h3>
-          <p className="mb-2 text-xs text-slate-400">Blue: all four sensors in range. Yellow: one or two out of range, buzzer off. Red: three or four out of range, or a sensor reading is missing or stale; buzzer on.</p>
+          <p className="mb-2 text-xs text-slate-400">Blue: all four sensors in range and feed above 15%. Yellow: one or two sensors out of range, buzzer off. Red: three or four sensors out of range, a missing or stale sensor reading, or feed at 15% or less; buzzer on.</p>
           {sensorStatus ? (
             <>
-              <p className="text-sm text-slate-300">Sensors call for {sensorStatus.color.toLowerCase()} with buzzer {sensorStatus.buzzer.toLowerCase()}: {sensorStatus.reason}</p>
+              <p className="text-sm text-slate-300">Automatic status calls for {sensorStatus.color.toLowerCase()} with buzzer {sensorStatus.buzzer.toLowerCase()}: {sensorStatus.reason}</p>
               {sensorStatus.issues?.length > 0 && <ul className="mt-2 list-disc pl-5 text-sm text-slate-400">{sensorStatus.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
               {reportLive && outputReport.mode === 'MANUAL' && <p className="mt-2 text-sm text-amber-200">Manual test is active; the reported LED can differ from the sensor status for up to 30 seconds.</p>}
               {!reportLive && <p className="mt-2 text-sm text-amber-200">The WeMos has not reported recently, so its current LED state is unknown.</p>}
             </>
-          ) : <p className="text-sm text-slate-400">Sensor status is unavailable.</p>}
+          ) : <p className="text-sm text-slate-400">Automatic status is unavailable.</p>}
         </div>
-        {outputMismatch && <p className="mt-3 rounded-lg bg-amber-500/15 p-3 text-sm text-amber-200" role="alert">Sensors call for {sensorStatus.color} with buzzer {sensorStatus.buzzer}, but the WeMos reports {outputReport.color} with buzzer {outputReport.buzzer}. Check the WeMos connection and upload the latest sketch.</p>}
+        {outputMismatch && <p className="mt-3 rounded-lg bg-amber-500/15 p-3 text-sm text-amber-200" role="alert">Automatic status calls for {sensorStatus.color} with buzzer {sensorStatus.buzzer}, but the WeMos reports {outputReport.color} with buzzer {outputReport.buzzer}. Check the WeMos connection.</p>}
       </section>
 
       <section className="card p-5">

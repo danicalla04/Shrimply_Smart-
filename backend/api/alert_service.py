@@ -10,6 +10,7 @@ from django.core.mail import send_mail
 from django.core.cache import cache
 from django.conf import settings
 from .models import Alert, Threshold, SensorReading, HistorySettings
+from .feeder_level import LOW_FEED_PERCENT, fresh_hopper_percent, hopper_percent
 from datetime import timedelta
 import logging
 import threading
@@ -269,8 +270,6 @@ class AlertService:
     # No feeder telemetry for this long → ultrasonic/feeder device offline
     # (matches the 20s "Telemetry age" threshold used on the Feeding page)
     FEEDER_STALE_SECONDS = 20
-    # Larger ultrasonic gap = less feed in the hopper (20 cm = full, 32 cm = 10%)
-    FEEDER_LOW_DISTANCE_CM = 32.0
     # After user marks offline/disconnect as read, do not recreate until sensors recover
     _SNOOZE_UNTIL_ONLINE_PREFIX = 'alert:snooze_until_online:'
     _CREATE_LOCK_PREFIX = 'alert:creating:'
@@ -463,7 +462,8 @@ class AlertService:
                 resolved=True, message='Feeder device / ultrasonic reconnected. Automatically marked as read.'
             )
             distance = feeder_telemetry.distance_cm
-            if 0 <= distance < AlertService.FEEDER_LOW_DISTANCE_CM:
+            percent = hopper_percent(distance)
+            if percent is not None and percent > LOW_FEED_PERCENT:
                 AlertService.clear_snooze('feeder_level')
                 Alert.objects.filter(parameter='feeder_level', resolved=False).update(
                     resolved=True,
@@ -471,7 +471,7 @@ class AlertService:
                 )
         if feeder is not None and feeder.capacity_max > 0:
             percent = int(round(max(0.0, min(100.0, feeder.capacity_current / feeder.capacity_max * 100.0))))
-            if percent > feeder.low_percent:
+            if percent > LOW_FEED_PERCENT:
                 AlertService.clear_snooze('feeder_capacity')
                 Alert.objects.filter(parameter='feeder_capacity', resolved=False).update(
                     resolved=True, message=f'Feeder capacity recovered: {percent}% remaining. Automatically marked as read.',
@@ -554,15 +554,14 @@ class AlertService:
     @staticmethod
     def check_feeder_level():
         """
-        When ultrasonic distance is 32 cm or more, the hopper is low (~10%).
+        Alert when fresh ultrasonic telemetry reports 15% feed or less.
         One open 'feeder_level' alert; emails Settings → notification email
         on first create. Fresh telemetry only (ignore stale/offline readings).
         """
-        from .models import Feeder, FeederTelemetry
+        from .models import Feeder
 
         created = []
         param = 'feeder_level'
-        threshold = AlertService.FEEDER_LOW_DISTANCE_CM
         now = timezone.now()
 
         feeder = Feeder.objects.first()
@@ -575,24 +574,18 @@ class AlertService:
             feeder.missed_feed_alert = True
             feeder.save(update_fields=['alerts_enabled', 'weather_alert', 'low_feed_alert', 'missed_feed_alert'])
 
-        latest = FeederTelemetry.objects.order_by('-timestamp').first()
-        if latest is None or latest.timestamp is None:
+        level = fresh_hopper_percent(now)
+        if level is None:
             return created
+        percent, latest = level
+        dist = float(latest.distance_cm)
+        # A fresh physical level supersedes a stale saved-capacity estimate.
+        Alert.objects.filter(parameter='feeder_capacity', resolved=False).update(
+            resolved=True,
+            message=f'Live ultrasonic feeder level is {percent}%. Saved capacity alert superseded.',
+        )
 
-        age_sec = (now - latest.timestamp).total_seconds()
-        if age_sec >= AlertService.FEEDER_STALE_SECONDS:
-            return created
-
-        dist = latest.distance_cm
-        if dist is None:
-            return created
-
-        try:
-            dist = float(dist)
-        except (TypeError, ValueError):
-            return created
-
-        is_low = dist >= threshold
+        is_low = percent <= LOW_FEED_PERCENT
 
         if not is_low:
             AlertService.recover_alerts(feeder_telemetry=latest)
@@ -601,18 +594,17 @@ class AlertService:
         if AlertService.is_snoozed(param):
             return created
 
-        msg = (
-            f'Feeder is low on feeds — please refill. '
-            f'Ultrasonic distance {dist:.1f} cm '
-            f'(low when {threshold:.0f} cm or above).'
-        )
+        msg = f'Feeder is low on feed: {percent}% remaining (15% threshold). Ultrasonic distance {dist:.1f} cm. Please refill.'
 
         open_alert = Alert.objects.filter(parameter=param, resolved=False).first()
         if open_alert:
             open_alert.message = msg
-            open_alert.value = dist
+            open_alert.value = percent
+            open_alert.severity = 'critical'
+            open_alert.threshold_min = LOW_FEED_PERCENT
+            open_alert.threshold_max = 100
             open_alert.timestamp = now
-            open_alert.save(update_fields=['message', 'value', 'timestamp'])
+            open_alert.save(update_fields=['message', 'value', 'severity', 'threshold_min', 'threshold_max', 'timestamp'])
             return created
 
         lock_key = f'{AlertService._CREATE_LOCK_PREFIX}{param}'
@@ -624,10 +616,10 @@ class AlertService:
                 return created
             alert = Alert.objects.create(
                 parameter=param,
-                severity='warning',
-                value=dist,
-                threshold_min=0,
-                threshold_max=threshold,
+                severity='critical',
+                value=percent,
+                threshold_min=LOW_FEED_PERCENT,
+                threshold_max=100,
                 message=msg,
             )
         finally:
@@ -637,6 +629,22 @@ class AlertService:
             return created
 
         AlertService.notify_alert_async(alert)
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            layer = get_channel_layer()
+            if layer is not None:
+                async_to_sync(layer.group_send)('alert_updates', {
+                    'type': 'alert_notification',
+                    'data': {'event': 'new_alert', 'alert': {
+                        'id': alert.id, 'parameter': alert.parameter, 'severity': alert.severity,
+                        'value': alert.value, 'threshold_min': alert.threshold_min,
+                        'threshold_max': alert.threshold_max, 'message': alert.message,
+                        'timestamp': alert.timestamp.isoformat(), 'resolved': alert.resolved,
+                    }},
+                })
+        except Exception as exc:
+            logger.warning('Could not broadcast feeder-level alert: %s', exc)
         created.append(alert)
         logger.warning('[FEEDER_LEVEL] %s', msg)
         return created

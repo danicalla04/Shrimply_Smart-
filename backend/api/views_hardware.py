@@ -1,3 +1,5 @@
+import logging
+
 from django.http import HttpResponse
 from django.db import transaction
 from django.views.decorators.http import require_GET
@@ -6,8 +8,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from .hardware_status import assess_hardware_status
+from .alert_service import AlertService
 from .models import ActivityLog, HardwareCommand, HardwareOutputState
 from .permissions import user_privileges
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
@@ -57,6 +62,10 @@ def poll_hardware_command(request):
 @permission_classes([AllowAny])
 def hardware_status(request):
     """Current automatic output state. The ESP8266 reads the compact response."""
+    try:
+        AlertService.check_feeder_level()
+    except Exception as exc:
+        logger.warning('Could not update feeder-level alert: %s', exc)
     status = assess_hardware_status()
     if request.GET.get('format') == 'json':
         if not request.user.is_authenticated or request.user.username != 'admin123' or not request.user.is_staff:

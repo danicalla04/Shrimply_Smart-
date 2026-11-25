@@ -185,13 +185,20 @@ class HardwareStatusTests(APITestCase):
         self.reading.save()
         self.assertEqual((self.status()['color'], self.status()['buzzer'], self.status()['out_of_range_count']), ('RED', 'ON', 4))
 
-    def test_feeder_level_and_connection_do_not_affect_lights(self):
+    def test_low_feeder_level_turns_red_and_recovery_restores_blue(self):
         from .models import Feeder, FeederTelemetry
         self.client.force_authenticate(self.admin)
-        Feeder.objects.create(capacity_current=0, low_percent=15)
-        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=32)
+        feeder = Feeder.objects.create(capacity_current=0, low_percent=15)
+        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=31.2)
+        self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
+        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=31.33)
+        self.assertEqual((self.status()['color'], self.status()['buzzer'], self.status()['feeder_percent']), ('RED', 'ON', 15))
+        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=25)
         self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
         FeederTelemetry.objects.all().delete()
+        self.assertEqual((self.status()['color'], self.status()['buzzer']), ('RED', 'ON'))
+        feeder.capacity_current = feeder.capacity_max
+        feeder.save()
         self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
 
     def test_missing_and_stale_sensor_readings_are_red(self):
@@ -840,6 +847,35 @@ class RangeAlertRecoveryTests(APITestCase):
         self.assertTrue(alert.resolved)
         self.assertEqual(alert.value, 35)
 
+    def test_feeder_level_alert_at_15_percent_and_recovers(self):
+        from unittest.mock import patch
+        from .alert_service import AlertService
+        from .models import FeederTelemetry, Alert
+        with patch.object(AlertService, 'notify_alert_async'):
+            FeederTelemetry.objects.create(distance_cm=31.2)
+            self.assertFalse(AlertService.check_feeder_level())
+            FeederTelemetry.objects.create(distance_cm=31.33)
+            created = AlertService.check_feeder_level()
+            self.assertEqual(len(created), 1)
+            self.assertEqual((created[0].severity, created[0].value), ('critical', 15))
+            self.assertEqual(Alert.objects.filter(parameter='feeder_level', resolved=False).count(), 1)
+            FeederTelemetry.objects.create(distance_cm=31.5)
+            self.assertFalse(AlertService.check_feeder_level())
+            self.assertEqual(Alert.objects.filter(parameter='feeder_level', resolved=False).count(), 1)
+            FeederTelemetry.objects.create(distance_cm=31.2)
+            self.assertFalse(AlertService.check_feeder_level())
+            self.assertFalse(Alert.objects.filter(parameter='feeder_level', resolved=False).exists())
+
+    def test_alert_panel_detects_fresh_low_feeder_level(self):
+        from unittest.mock import patch
+        from .alert_service import AlertService
+        from .models import FeederTelemetry, Alert
+        FeederTelemetry.objects.create(distance_cm=31.33)
+        with patch.object(AlertService, 'notify_alert_async'):
+            response = self.client.get('/api/alerts/active/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Alert.objects.filter(parameter='feeder_level', severity='critical', resolved=False).exists())
+
     def test_feeder_capacity_recovers_after_refill(self):
         from .models import Feeder
         feeder = Feeder.objects.create(capacity_max=1000, capacity_current=100, low_percent=15)
@@ -913,3 +949,29 @@ class FeederDailyPortionTests(APITestCase):
         self.assertEqual(FeedingLog.objects.get(feeder=self.feeder).portion_grams, 20000)
         enqueue.assert_called_once()
         self.assertEqual(enqueue.call_args.kwargs['target_grams'], 20000)
+
+    def test_dispense_summary_excludes_plan_and_hardware_test(self):
+        from .models import FeedingLog
+        for grams, notes in [(150, 'Manual feeding'), (25, 'Auto feeding'), (999, 'Applied ML today feed plan: 0.999 kg'), (500, 'Servo feed: test')]:
+            FeedingLog.objects.create(
+                feeder=self.feeder, feed_type='manual', portion_grams=grams,
+                capacity_before=1000, capacity_after=1000 - grams, notes=notes,
+            )
+        response = self.client.get('/api/feeder/dispense_summary/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['today_grams'], 175)
+        self.assertEqual(response.data['total_grams'], 175)
+        self.assertEqual(response.data['count_today'], 2)
+        self.assertEqual(response.data['basis'], 'estimated_from_commands')
+
+    def test_saved_low_capacity_appears_in_alert_panel_without_live_level(self):
+        from unittest.mock import patch
+        from .alert_service import AlertService
+        from .models import Alert
+        self.feeder.capacity_current = 100
+        self.feeder.save()
+        with patch.object(AlertService, 'notify_alert_async'):
+            self.assertEqual(self.client.get('/api/feeder/').status_code, 200)
+        alert = Alert.objects.get(parameter='feeder_capacity', resolved=False)
+        self.assertEqual((alert.severity, alert.value), ('warning', 10))
+        self.assertIn('15%', alert.message)

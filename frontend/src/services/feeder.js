@@ -124,6 +124,16 @@ export async function updateFeederSettings(settings) {
   }
 }
 
+export async function fetchDispenseSummary() {
+  const response = await authService.apiCall(`${API_BASE}/feeder/dispense_summary/`)
+  if (response && typeof response.json === 'function') {
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Could not load feed total')
+    return data
+  }
+  return response?.data || response
+}
+
 export async function toggleAutoFeeding(enabled) {
   try {
     const response = await authService.apiCall(`${API_BASE}/feeder/toggle_auto/`, {
@@ -177,22 +187,13 @@ export async function feedOnce() {
 }
 
 export async function refillFeeder() {
-  try {
-    const response = await authService.apiCall(`${API_BASE}/feeder/refill/`, {
-      method: 'POST'
-    })
-    if (response && typeof response.json === 'function') {
-      return normalizeFeederData(await response.json())
-    }
-    return normalizeFeederData(response?.data || {})
-  } catch (error) {
-    console.error('Failed to refill feeder:', error)
-    // Update localStorage as fallback
-    const current = getFeederState()
-    const updated = refill(current)
-    saveFeederState(updated)
-    return updated
+  const response = await authService.apiCall(`${API_BASE}/feeder/refill/`, { method: 'POST' })
+  if (response && typeof response.json === 'function') {
+    const data = await response.json()
+    if (!response.ok) throw new Error(data.error || 'Could not mark feeder refilled')
+    return normalizeFeederData(data)
   }
+  return normalizeFeederData(response?.data || response)
 }
 
 export async function processAutoFeedTick() {
