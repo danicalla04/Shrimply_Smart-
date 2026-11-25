@@ -25,7 +25,7 @@ from .ensemble_ml_predictor import get_ensemble_ml_predictor
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from .alert_service import AlertService
-from .feeder_servo_scheduler import enqueue_servo_job
+from .feeder_servo_scheduler import cancel_future_servo_jobs, enqueue_servo_job
 import requests
 import os
 import random
@@ -36,6 +36,8 @@ import json
 from django.conf import settings
 import hmac
 import logging
+import math
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -1192,6 +1194,11 @@ class FeederViewSet(viewsets.ModelViewSet):
             else:
                 feeder.next_feed_at = None
             feeder.save()
+            if not enabled:
+                try:
+                    cancel_future_servo_jobs()
+                except Exception:
+                    pass
             serializer = self.get_serializer(feeder)
             return Response(serializer.data)
         except Exception as e:
@@ -1207,7 +1214,8 @@ class FeederViewSet(viewsets.ModelViewSet):
 
             # Update fields if provided
             for field in ['interval_minutes', 'portion_grams', 'capacity_max', 'low_percent',
-                         'schedule_type', 'daily_schedule', 'today_feed_plan', 'weather_adaptation',
+                         'schedule_type', 'daily_schedule', 'daily_portions_grams', 'feed_rate_grams_per_minute',
+                         'today_feed_plan', 'weather_adaptation',
                          'rain_reduction_percent', 'heat_increase_percent', 'extreme_weather_pause',
                          'smart_optimization', 'behavior_adjustment', 'water_quality_adjustment']:
                 if field in request.data:
@@ -1220,10 +1228,21 @@ class FeederViewSet(viewsets.ModelViewSet):
                             feeder.capacity_current = min(feeder.capacity_current, value)
                         elif field in ['interval_minutes', 'low_percent']:
                             value = max(1, value)
-                    elif field in ['daily_schedule', 'today_feed_plan'] and isinstance(value, str):
+                    elif field == 'feed_rate_grams_per_minute':
+                        value = float(value)
+                        if not math.isfinite(value) or not 0 < value <= 10000:
+                            return Response({'error': 'Feed rate must be greater than 0 and at most 10000 g/min.'}, status=400)
+                    elif field in ['daily_schedule', 'daily_portions_grams', 'today_feed_plan'] and isinstance(value, str):
                         # Parse JSON string if needed
                         import json
                         value = json.loads(value)
+                    if field == 'daily_portions_grams':
+                        if not isinstance(value, dict) or any(
+                            not isinstance(key, str) or not re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d', key)
+                            or not str(amount).isdigit() or not 1 <= int(amount) <= 1000000
+                            for key, amount in value.items()
+                        ):
+                            return Response({'error': 'Daily portions must map HH:MM times to positive whole grams.'}, status=400)
                     setattr(feeder, field, value)
 
             feeder.alerts_enabled = True
@@ -1240,6 +1259,15 @@ class FeederViewSet(viewsets.ModelViewSet):
                 feeder.next_feed_at = feeder.get_next_feed_time()
 
             feeder.save()
+            if any(field in request.data for field in {
+                'interval_minutes', 'portion_grams', 'capacity_max', 'schedule_type', 'daily_schedule',
+                'daily_portions_grams', 'feed_rate_grams_per_minute',
+            }):
+                try:
+                    cancel_future_servo_jobs()
+                except Exception:
+                    # Older installations may not have the optional raw servo job columns.
+                    pass
             serializer = self.get_serializer(feeder)
             return Response(serializer.data)
         except Exception as e:
@@ -1257,7 +1285,7 @@ class FeederViewSet(viewsets.ModelViewSet):
             if feeder.auto_enabled and feeder.next_feed_at and now >= feeder.next_feed_at:
                 if feeder.capacity_current > 0:
                     # Auto-feed uses configured input amount (ML recommendation is separate UI/API).
-                    portion = float(feeder.portion_grams)
+                    portion = float(feeder.portion_for_due_feed(feeder.next_feed_at))
                     portion = min(portion, feeder.capacity_current)
 
                     capacity_before = feeder.capacity_current
@@ -1639,11 +1667,16 @@ class FeederViewSet(viewsets.ModelViewSet):
             feeder.schedule_type = 'daily'
             feeder.daily_schedule = daily_times
             feeder.portion_grams = portion_g
+            feeder.daily_portions_grams = {time: max(1, int(round(float(slots.get(time, avg_kg)) * 1000))) for time in daily_times}
             feeder.weather_adaptation = True
             feeder.today_feed_plan = saved_plan
             if feeder.auto_enabled:
                 feeder.next_feed_at = feeder.get_next_feed_time()
             feeder.save()
+            try:
+                cancel_future_servo_jobs()
+            except Exception:
+                pass
 
             # History entry (plan applied — does not dispense feed / reduce capacity)
             FeedingLog.objects.create(

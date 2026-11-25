@@ -45,7 +45,7 @@ class Command(BaseCommand):
                 continue
 
             # Calculate portion
-            portion = feeder.adjust_portion_for_weather(feeder.portion_grams, weather_data)
+            portion = feeder.adjust_portion_for_weather(feeder.portion_for_due_feed(feeder.next_feed_at), weather_data)
             portion = min(portion, feeder.capacity_current)
 
             capacity_before = feeder.capacity_current

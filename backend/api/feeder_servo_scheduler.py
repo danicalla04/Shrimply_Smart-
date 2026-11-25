@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from dataclasses import dataclass
 from typing import Optional
 
@@ -8,6 +9,12 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+def run_seconds_for_grams(target_grams: int, grams_per_minute: float) -> float:
+    if target_grams <= 0 or grams_per_minute <= 0:
+        raise ValueError('Amount and feed rate must be positive')
+    return float(target_grams) * 60 / float(grams_per_minute)
 
 
 @dataclass
@@ -22,7 +29,7 @@ def enqueue_servo_job(
     target_grams: int,
     on_at=None,
     device_id: str = "wemos-poller",
-    calibration_grams_30s: float = 570.0,
+    calibration_grams_30s: Optional[float] = None,
 ) -> Optional[int]:
     """Insert a scheduled servo job into api_feedertelemetry.
 
@@ -42,6 +49,12 @@ def enqueue_servo_job(
         logger.warning("target_grams must be > 0")
         return None
 
+    if calibration_grams_30s is None:
+        from api.models import Feeder
+        feeder = Feeder.objects.first()
+        calibration_grams_30s = float(feeder.feed_rate_grams_per_minute if feeder else 40.14) / 2
+
+    off_at = on_at + timedelta(seconds=run_seconds_for_grams(grams_int, calibration_grams_30s * 2))
     now = timezone.now()
     try:
         with connection.cursor() as cursor:
@@ -49,10 +62,10 @@ def enqueue_servo_job(
                 """
                 INSERT INTO api_feedertelemetry
                     (timestamp, motor_state, distance_cm, device_id,
-                     on_at, target_grams, calibration_grams_30s, schedule_status)
+                     on_at, off_at, target_grams, calibration_grams_30s, schedule_status)
                 VALUES
                     (%s, %s, %s, %s,
-                     %s, %s, %s, %s)
+                     %s, %s, %s, %s, %s)
                 """,
                 [
                     now,
@@ -60,6 +73,7 @@ def enqueue_servo_job(
                     None,
                     device_id,
                     on_at,
+                    off_at,
                     grams_int,
                     float(calibration_grams_30s),
                     "scheduled",
@@ -69,6 +83,21 @@ def enqueue_servo_job(
     except Exception as e:
         logger.warning("Failed to enqueue servo job: %s", e, exc_info=True)
         return None
+
+
+def cancel_future_servo_jobs(*, device_id: str = "wemos-poller") -> None:
+    """Discard queued jobs so the poller can seed the revised schedule."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE api_feedertelemetry
+            SET schedule_status = %s
+            WHERE schedule_status = %s
+              AND on_at >= %s
+              AND (device_id = %s OR device_id = '' OR device_id IS NULL)
+            """,
+            ["cancelled", "scheduled", timezone.now(), device_id],
+        )
 
 
 def ensure_next_servo_job_seeded(*, device_id: str = "wemos-poller") -> Optional[int]:
@@ -91,6 +120,8 @@ def ensure_next_servo_job_seeded(*, device_id: str = "wemos-poller") -> Optional
         feeder = Feeder.objects.create()
 
     if not feeder.auto_enabled:
+        return None
+    if feeder.capacity_current <= 0:
         return None
 
     now = timezone.now()
@@ -125,10 +156,10 @@ def ensure_next_servo_job_seeded(*, device_id: str = "wemos-poller") -> Optional
 
     # Seed a scheduled job.
     return enqueue_servo_job(
-        target_grams=int(getattr(feeder, "portion_grams", 50) or 50),
+        target_grams=min(feeder.portion_for_due_feed(next_on_at), feeder.capacity_current),
         on_at=next_on_at,
         device_id=device_id,
-        calibration_grams_30s=570.0,
+        calibration_grams_30s=feeder.feed_rate_grams_per_minute / 2,
     )
 
 

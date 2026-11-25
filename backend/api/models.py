@@ -282,6 +282,7 @@ class Feeder(models.Model):
     auto_enabled = models.BooleanField(default=False)
     interval_minutes = models.IntegerField(default=60)  # For simple interval-based feeding
     portion_grams = models.IntegerField(default=50)
+    feed_rate_grams_per_minute = models.FloatField(default=40.14)
     capacity_max = models.IntegerField(default=1000)
     capacity_current = models.IntegerField(default=1000)
     low_percent = models.IntegerField(default=15)
@@ -298,6 +299,7 @@ class Feeder(models.Model):
 
     # Daily schedule (JSON array of times, e.g., ["08:00", "14:00", "20:00"])
     daily_schedule = models.JSONField(default=list, blank=True)
+    daily_portions_grams = models.JSONField(default=dict, blank=True)
 
     # Applied ML plan for a calendar day (shown when opening Feeding page)
     # Example: {"date":"2026-07-27","total_kg":6.37,"slots_kg":{"06:00":0.95,...},"doc":2,...}
@@ -340,8 +342,9 @@ class Feeder(models.Model):
             if not self.daily_schedule:
                 return now + timezone.timedelta(hours=1)  # Default fallback
 
-            today = now.date()
-            current_time = now.time()
+            local_now = timezone.localtime(now)
+            today = local_now.date()
+            current_time = local_now.time()
 
             # Find next feeding time today
             for time_str in sorted(self.daily_schedule):
@@ -360,6 +363,16 @@ class Feeder(models.Model):
                 return next_feed
 
         return now + timezone.timedelta(hours=1)  # Default fallback
+
+    def portion_for_due_feed(self, due_at=None):
+        """Return this daily slot's amount, falling back to the general portion."""
+        from django.utils import timezone
+        if self.schedule_type == 'daily' and due_at:
+            slot = timezone.localtime(due_at).strftime('%H:%M')
+            value = (self.daily_portions_grams or {}).get(slot)
+            if value is not None:
+                return max(1, int(value))
+        return max(1, int(self.portion_grams))
 
     def should_feed_based_on_weather(self, weather_data):
         """Determine if feeding should proceed based on weather conditions"""

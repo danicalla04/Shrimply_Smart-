@@ -94,6 +94,10 @@ export default function Feeding() {
   const [mlApplying, setMlApplying] = useState(false);
   const [todayPlan, setTodayPlan] = useState(null);
   const [slotEditor, setSlotEditor] = useState(null); // { oldTime, time, kg }
+  const [portionDraft, setPortionDraft] = useState('0.05');
+  const [rateDraft, setRateDraft] = useState('40.14');
+  const [capacityDraft, setCapacityDraft] = useState('1');
+  const [newDailyKg, setNewDailyKg] = useState('0.05');
   const lastTelemetryRef = useRef(null);
   const TELEMETRY_STALE_MS = 20000;
 
@@ -123,7 +127,8 @@ export default function Feeding() {
 
   const openSlotEditor = (timeStr) => {
     const slots = todayPlan?.slots_kg || mlRec?.slots_kg || {};
-    const kg = slots[timeStr] != null ? Number(slots[timeStr]) : '';
+    const grams = state.dailyPortionsGrams?.[timeStr];
+    const kg = grams != null ? Number(grams) / 1000 : slots[timeStr] != null ? Number(slots[timeStr]) : gramsToKgInput(state.portionGrams);
     setSlotEditor({ oldTime: timeStr, time: timeStr, kg });
   };
 
@@ -135,10 +140,10 @@ export default function Feeding() {
     }
     if (newTime === oldTime && kgOverride === undefined) return true;
 
-    const kgNum = kgOverride === undefined || kgOverride === '' || kgOverride == null
-      ? null
-      : Number(kgOverride);
-    if (kgNum != null && (Number.isNaN(kgNum) || kgNum < 0)) {
+    const existingGrams = state.dailyPortionsGrams?.[oldTime];
+    const existingKg = existingGrams != null ? Number(existingGrams) / 1000 : todayPlan?.slots_kg?.[oldTime] ?? gramsToKgInput(state.portionGrams);
+    const kgNum = kgOverride === undefined ? Number(existingKg) : Number(kgOverride);
+    if (!Number.isFinite(kgNum) || kgNum <= 0) {
       flash('Enter a valid feed amount (kg)', 'error');
       return false;
     }
@@ -147,12 +152,19 @@ export default function Feeding() {
     if (!schedule.length && todayPlan?.slots_kg) {
       schedule = Object.keys(todayPlan.slots_kg);
     }
+    if (newTime !== oldTime && schedule.includes(newTime)) {
+      flash('This time is already in the schedule', 'error');
+      return false;
+    }
     const idx = schedule.indexOf(oldTime);
     if (idx >= 0) schedule[idx] = newTime;
     else if (!schedule.includes(newTime)) schedule.push(newTime);
     schedule = [...new Set(schedule.filter(Boolean))].sort();
 
-    let plan = todayPlan ? { ...todayPlan } : (state.todayFeedPlan ? { ...state.todayFeedPlan } : null);
+    const dailyPortions = { ...(state.dailyPortionsGrams || {}) };
+    if (oldTime !== newTime) delete dailyPortions[oldTime];
+    dailyPortions[newTime] = Math.round(kgNum * 1000);
+    let plan = todayPlan ? { ...todayPlan } : null;
     if (plan) {
       const slots = { ...(plan.slots_kg || {}) };
       const oldKg = slots[oldTime];
@@ -173,6 +185,7 @@ export default function Feeding() {
     const updatedState = await updateFeederSettings({
       schedule_type: 'daily',
       daily_schedule: schedule,
+      daily_portions_grams: dailyPortions,
       ...(plan ? { today_feed_plan: plan } : {}),
     });
     setState(updatedState);
@@ -181,6 +194,40 @@ export default function Feeding() {
       setMlRec((prev) => prev ? { ...prev, slots_kg: plan.slots_kg, total_kg: plan.total_kg } : prev);
     }
     flash('Feeding time updated', 'success');
+    return true;
+  };
+
+  const savePortionDraft = async () => {
+    const kg = Number(portionDraft);
+    if (!Number.isFinite(kg) || kg <= 0) { flash('Enter a positive portion in kg'); return; }
+    try {
+      const updated = await updateFeederSettings({ portion_grams: kgInputToGrams(kg) });
+      setState(updated);
+      setPortionDraft(String(gramsToKgInput(updated.portionGrams)));
+      flash('Default portion saved', 'success');
+    } catch (error) { flash(error.message || 'Could not save portion'); }
+  };
+
+  const saveRateDraft = async () => {
+    const rate = Number(rateDraft);
+    if (!Number.isFinite(rate) || rate <= 0) { flash('Enter a positive grams-per-minute rate'); return; }
+    try {
+      const updated = await updateFeederSettings({ feed_rate_grams_per_minute: rate });
+      setState(updated);
+      setRateDraft(String(updated.feedRateGramsPerMinute));
+      flash('Feed rate saved', 'success');
+    } catch (error) { flash(error.message || 'Could not save feed rate'); }
+  };
+
+  const saveCapacityDraft = async () => {
+    const kg = Number(capacityDraft);
+    if (!Number.isFinite(kg) || kg <= 0) { flash('Enter a positive hopper capacity in kg'); return; }
+    try {
+      const updated = await updateFeederSettings({ capacity_max: kgInputToGrams(kg) });
+      setState(updated);
+      setCapacityDraft(String(gramsToKgInput(updated.capacityMax)));
+      flash('Hopper capacity saved', 'success');
+    } catch (error) { flash(error.message || 'Could not save hopper capacity'); }
   };
 
   const saveSlotEditor = async () => {
@@ -421,6 +468,10 @@ export default function Feeding() {
           fetchFeedingHistory(20)
         ]);
         setState(feederState);
+        setPortionDraft(String(gramsToKgInput(feederState.portionGrams)));
+        setRateDraft(String(feederState.feedRateGramsPerMinute));
+        setCapacityDraft(String(gramsToKgInput(feederState.capacityMax)));
+        setNewDailyKg(String(gramsToKgInput(feederState.portionGrams)));
         applyFeedingHistory(history);
         const plan = feederState.todayFeedPlan;
         if (plan?.date === todayISO()) {
@@ -909,19 +960,13 @@ export default function Feeding() {
                       <label className="block text-sm font-bold text-slate-700 mb-2">{t('portionPerFeed') || 'Portion per Feed (kg)'}</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="0.001"
                         className="w-full border-2 border-blue-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
-                        value={gramsToKgInput(state.portionGrams || 50)}
-                        disabled={!privileges.update} onChange={async (e) => {
-                          try {
-                            const grams = kgInputToGrams(e.target.value);
-                            const updatedState = await updateFeederSettings({ portion_grams: grams });
-                            setState(updatedState);
-                          } catch (error) {
-                            console.error('Failed to update portion grams:', error);
-                          }
-                        }}
-                        min={0}
+                        value={portionDraft}
+                        disabled={!privileges.update}
+                        onChange={(e) => setPortionDraft(e.target.value)}
+                        onBlur={savePortionDraft}
+                        min={0.001}
                       />
                     </div>
                   </div>
@@ -933,22 +978,22 @@ export default function Feeding() {
                       <label className="block text-sm font-bold text-slate-700 mb-2">{t('portionPerFeed') || 'Portion per Feed (kg)'}</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="0.001"
                         className="w-full border-2 border-blue-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all"
-                        value={gramsToKgInput(state.portionGrams || 50)}
-                        disabled={!privileges.update} onChange={async (e) => {
-                          try {
-                            const grams = kgInputToGrams(e.target.value);
-                            const updatedState = await updateFeederSettings({ portion_grams: grams });
-                            setState(updatedState);
-                          } catch (error) {
-                            console.error('Failed to update portion grams:', error);
-                          }
-                        }}
-                        min={0}
+                        value={portionDraft}
+                        disabled={!privileges.update}
+                        onChange={(e) => setPortionDraft(e.target.value)}
+                        onBlur={savePortionDraft}
+                        min={0.001}
                       />
+                      <p className="text-xs text-slate-500 mt-1">Default for Feed Once and slots without their own amount. Saves when you leave this field.</p>
                     </div>
 
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="text-sm font-semibold text-slate-700">Amount for new time (kg)
+                        <input type="number" step="0.001" min="0.001" value={newDailyKg} onChange={(e) => setNewDailyKg(e.target.value)} disabled={!privileges.update} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+                      </label>
+                    </div>
                     <div className="flex items-center gap-2">
                       <input
                         type="time"
@@ -962,12 +1007,16 @@ export default function Feeding() {
                             const currentTimes = (state.dailySchedule || []).filter(ti => ti && ti.trim());
                             const next = newDailyTime;
                             if (!next || !next.trim()) return;
-                            if (currentTimes.includes(next)) return;
+                            if (currentTimes.includes(next)) { flash('This time is already in the schedule'); return; }
+                            const grams = kgInputToGrams(newDailyKg);
+                            if (!Number.isFinite(Number(newDailyKg)) || Number(newDailyKg) <= 0) { flash('Enter a positive amount in kg'); return; }
                             const newSchedule = [...currentTimes, next].sort();
-                            const updatedState = await updateFeederSettings({ daily_schedule: newSchedule });
+                            const updatedState = await updateFeederSettings({ schedule_type: 'daily', daily_schedule: newSchedule, daily_portions_grams: { ...(state.dailyPortionsGrams || {}), [next]: grams } });
                             setState(updatedState);
+                            flash(`${next} scheduled for ${newDailyKg} kg`, 'success');
                           } catch (error) {
                             console.error('Failed to add time:', error);
+                            flash(error.message || 'Could not add feeding time');
                           }
                         }}
                         className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold"
@@ -977,13 +1026,14 @@ export default function Feeding() {
                     </div>
 
                     <div className="text-sm font-bold text-slate-700">Daily Times</div>
-                    <p className="text-xs text-slate-500">Click a time to see kg and adjust the clock.</p>
+                    <p className="text-xs text-slate-500">Click a time to edit its kg amount or clock time. Feed rate: {state.feedRateGramsPerMinute} g/min.</p>
                     <div className="space-y-2">
                       {(state.dailySchedule || []).length === 0 ? (
                         <div className="text-sm text-slate-500">No times set.</div>
                       ) : (
                         (state.dailySchedule || []).map((timeStr) => {
-                          const kg = todayPlan?.slots_kg?.[timeStr] ?? mlRec?.slots_kg?.[timeStr];
+                          const grams = state.dailyPortionsGrams?.[timeStr];
+                          const kg = grams != null ? grams / 1000 : todayPlan?.slots_kg?.[timeStr] ?? gramsToKgInput(state.portionGrams);
                           return (
                           <div key={timeStr} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 gap-2">
                             <button
@@ -995,12 +1045,15 @@ export default function Feeding() {
                               {kg != null && (
                                 <span className="ml-2 text-sm font-bold text-emerald-700">{kg} kg</span>
                               )}
+                              <span className="ml-2 text-xs text-slate-500">≈ {Math.round((Number(kg) * 1000 / Number(state.feedRateGramsPerMinute || 40.14)) * 10) / 10} min</span>
                               <span className="ml-2 text-xs text-blue-600 font-medium">Edit</span>
                             </button>
                             <button
                               disabled={!privileges.update} onClick={async () => {
                                 try {
                                   const newSchedule = (state.dailySchedule || []).filter(ti => ti !== timeStr);
+                                  const dailyPortions = { ...(state.dailyPortionsGrams || {}) };
+                                  delete dailyPortions[timeStr];
                                   let plan = todayPlan ? { ...todayPlan, slots_kg: { ...(todayPlan.slots_kg || {}) } } : null;
                                   if (plan?.slots_kg) {
                                     delete plan.slots_kg[timeStr];
@@ -1009,6 +1062,7 @@ export default function Feeding() {
                                   }
                                   const updatedState = await updateFeederSettings({
                                     daily_schedule: newSchedule,
+                                    daily_portions_grams: dailyPortions,
                                     ...(plan ? { today_feed_plan: plan } : {}),
                                   });
                                   setState(updatedState);
@@ -1147,23 +1201,33 @@ export default function Feeding() {
                   <label className="block text-sm font-bold text-slate-700 mb-2">🍤 {t('portionPerFeed')}</label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="0.001"
                     className="w-full border-2 border-indigo-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 transition-all"
-                    value={gramsToKgInput(state.portionGrams || state.portion_grams)}
-                    disabled={!privileges.update} onChange={async (e) => {
-                      try {
-                        const grams = kgInputToGrams(e.target.value);
-                        const updatedState = await updateFeederSettings({ portion_grams: grams });
-                        setState(updatedState);
-                      } catch (error) {
-                        console.error('Failed to update portion:', error);
-                      }
-                    }}
-                    min={0}
+                    value={portionDraft}
+                    disabled={!privileges.update}
+                    onChange={(e) => setPortionDraft(e.target.value)}
+                    onBlur={savePortionDraft}
+                    min={0.001}
                   />
                   <p className="text-xs text-slate-500 mt-1">
                     Used for manual / interval feeding — the ML daily schedule sets its own kg per slot.
                   </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Feeder rate (grams per minute)</label>
+                  <input type="number" step="0.01" min="0.01" value={rateDraft}
+                    onChange={(e) => setRateDraft(e.target.value)} onBlur={saveRateDraft}
+                    disabled={!privileges.update}
+                    className="w-full border-2 border-indigo-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-indigo-500" />
+                  <p className="text-xs text-slate-500 mt-1">Measured starting value: 40.14 g/min. Change it when you recalibrate the feeder; saves when you leave this field.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Hopper capacity (kg)</label>
+                  <input type="number" step="0.001" min="0.001" value={capacityDraft}
+                    onChange={(e) => setCapacityDraft(e.target.value)} onBlur={saveCapacityDraft}
+                    disabled={!privileges.update}
+                    className="w-full border-2 border-indigo-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-indigo-500" />
+                  <p className="text-xs text-slate-500 mt-1">Enter the feeder's actual full capacity. After loading feed, use Refill to update the feed-left estimate.</p>
                 </div>
                 <div>
                   <div className="text-sm font-bold text-slate-700 mb-2">Daily times</div>
@@ -1291,12 +1355,14 @@ export default function Feeding() {
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Feed amount (kg)</label>
                 <input
                   type="number"
-                  step="0.01"
-                  min="0"
+                  step="0.001"
+                  min="0.001"
                   value={slotEditor.kg}
                   onChange={(e) => setSlotEditor((s) => ({ ...s, kg: e.target.value }))}
                   className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 font-semibold"
                 />
+                {Number(slotEditor.kg) > 0 && <p className="text-sm text-slate-600">Estimated run time: {(Number(slotEditor.kg) * 1000 / Number(state.feedRateGramsPerMinute || 40.14)).toFixed(1)} minutes at {state.feedRateGramsPerMinute} g/min.</p>}
+                {Number(slotEditor.kg) * 1000 > Number(state.capacityCurrent ?? 0) && <p className="text-sm text-amber-700">The saved feed amount exceeds the currently recorded feed left ({state.capacityCurrent ?? 0} g). The feeder cannot dispense the full amount until it is refilled.</p>}
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-2">

@@ -853,3 +853,63 @@ class RangeAlertRecoveryTests(APITestCase):
         alert.refresh_from_db()
         self.assertTrue(alert.resolved)
         self.assertEqual(alert.value, 10)
+
+
+class FeederDailyPortionTests(APITestCase):
+    def setUp(self):
+        from .models import Feeder
+        self.feeder = Feeder.objects.create(
+            schedule_type='daily', daily_schedule=['04:30', '12:00'],
+            daily_portions_grams={'04:30': 20000}, portion_grams=50,
+            feed_rate_grams_per_minute=40.14,
+        )
+        self.client.force_authenticate(User.objects.create_user('feeder_settings_admin', is_staff=True))
+
+    def test_daily_amount_and_runtime_for_20kg(self):
+        from datetime import datetime
+        from django.utils import timezone
+        from .feeder_servo_scheduler import run_seconds_for_grams
+        due_at = timezone.make_aware(datetime(2026, 11, 26, 4, 30))
+        self.assertEqual(self.feeder.portion_for_due_feed(due_at), 20000)
+        self.assertEqual(self.feeder.portion_for_due_feed(due_at.replace(hour=12)), 50)
+        self.assertAlmostEqual(run_seconds_for_grams(20000, 40.14), 29895.366, places=2)
+
+    def test_settings_save_daily_amount_and_feed_rate(self):
+        response = self.client.post('/api/feeder/update_settings/', {
+            'schedule_type': 'daily',
+            'daily_schedule': ['04:30'],
+            'daily_portions_grams': {'04:30': 20000},
+            'feed_rate_grams_per_minute': 40.14,
+            'capacity_max': 25000,
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.feeder.refresh_from_db()
+        self.assertEqual(self.feeder.daily_portions_grams, {'04:30': 20000})
+        self.assertEqual(self.feeder.feed_rate_grams_per_minute, 40.14)
+        self.assertEqual(self.feeder.capacity_max, 25000)
+
+    def test_invalid_feed_rate_is_rejected(self):
+        response = self.client.post('/api/feeder/update_settings/', {
+            'feed_rate_grams_per_minute': 0,
+        }, format='json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_due_daily_feed_uses_its_20kg_amount(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from django.utils import timezone
+        from .models import FeedingLog
+        due_at = timezone.localtime(timezone.now()).replace(hour=4, minute=30, second=0, microsecond=0)
+        if due_at > timezone.now():
+            due_at -= timedelta(days=1)
+        self.feeder.auto_enabled = True
+        self.feeder.next_feed_at = due_at
+        self.feeder.capacity_max = 25000
+        self.feeder.capacity_current = 25000
+        self.feeder.save()
+        with patch('api.views.enqueue_servo_job') as enqueue:
+            response = self.client.get('/api/feeder/process_auto_feed/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(FeedingLog.objects.get(feeder=self.feeder).portion_grams, 20000)
+        enqueue.assert_called_once()
+        self.assertEqual(enqueue.call_args.kwargs['target_grams'], 20000)

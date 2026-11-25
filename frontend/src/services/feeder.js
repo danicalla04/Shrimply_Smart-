@@ -8,6 +8,7 @@ export const DEFAULT_FEEDER_STATE = {
   autoEnabled: false,
   intervalMinutes: 60,
   portionGrams: 50,
+  feedRateGramsPerMinute: 40.14,
   capacityMax: 1000,
   capacityCurrent: 1000,
   lowPercent: 15,
@@ -18,6 +19,7 @@ export const DEFAULT_FEEDER_STATE = {
   // Advanced scheduling
   scheduleType: 'interval',
   dailySchedule: [],
+  dailyPortionsGrams: {},
 
   // Weather adaptation
   weatherAdaptation: false,
@@ -111,16 +113,14 @@ export async function updateFeederSettings(settings) {
       body: JSON.stringify(settings)
     })
     if (response && typeof response.json === 'function') {
-      return normalizeFeederData(await response.json())
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Could not save feeder settings')
+      return normalizeFeederData(data)
     }
     return normalizeFeederData(response?.data || {})
   } catch (error) {
     console.error('Failed to update feeder settings:', error)
-    // Update localStorage as fallback
-    const current = getFeederState()
-    const updated = { ...current, ...settings }
-    saveFeederState(updated)
-    return updated
+    throw error
   }
 }
 
@@ -252,7 +252,8 @@ function normalizeFeederData(data) {
     // Basic settings
     autoEnabled: data.auto_enabled !== false,
     intervalMinutes: data.interval_minutes || 60,
-    portionGrams: data.portion_grams || 50,
+    portionGrams: data.portion_grams ?? 50,
+    feedRateGramsPerMinute: data.feed_rate_grams_per_minute ?? 40.14,
     capacityMax: data.capacity_max || 1000,
     capacityCurrent: data.capacity_current ?? 1000,
     lowPercent: data.low_percent || 15,
@@ -263,6 +264,7 @@ function normalizeFeederData(data) {
     // Advanced scheduling
     scheduleType: data.schedule_type || 'interval',
     dailySchedule: (data.daily_schedule || []).filter(time => time && time.trim()), // Filter out empty strings
+    dailyPortionsGrams: data.daily_portions_grams || {},
 
     // Weather adaptation
     weatherAdaptation: data.weather_adaptation || false,
