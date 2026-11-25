@@ -2,13 +2,14 @@
 import { authService } from './auth'
 import API_BASE from './apiConfig'
 const STORAGE_KEY = 'feeder_state_v1'; // fallback for offline
+export const DEFAULT_FEED_RATE_GRAMS_PER_MINUTE = 1207.5
 
 export const DEFAULT_FEEDER_STATE = {
   // Basic settings
   autoEnabled: false,
   intervalMinutes: 60,
   portionGrams: 50,
-  feedRateGramsPerMinute: 40.14,
+  feedRateGramsPerMinute: DEFAULT_FEED_RATE_GRAMS_PER_MINUTE,
   capacityMax: 1000,
   capacityCurrent: 1000,
   lowPercent: 15,
@@ -254,7 +255,7 @@ function normalizeFeederData(data) {
     autoEnabled: data.auto_enabled !== false,
     intervalMinutes: data.interval_minutes || 60,
     portionGrams: data.portion_grams ?? 50,
-    feedRateGramsPerMinute: data.feed_rate_grams_per_minute ?? 40.14,
+    feedRateGramsPerMinute: data.feed_rate_grams_per_minute ?? DEFAULT_FEED_RATE_GRAMS_PER_MINUTE,
     capacityMax: data.capacity_max || 1000,
     capacityCurrent: data.capacity_current ?? 1000,
     lowPercent: data.low_percent || 15,

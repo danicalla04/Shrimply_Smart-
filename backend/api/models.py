@@ -282,7 +282,7 @@ class Feeder(models.Model):
     auto_enabled = models.BooleanField(default=False)
     interval_minutes = models.IntegerField(default=60)  # For simple interval-based feeding
     portion_grams = models.IntegerField(default=50)
-    feed_rate_grams_per_minute = models.FloatField(default=40.14)
+    feed_rate_grams_per_minute = models.FloatField(default=1207.5)
     capacity_max = models.IntegerField(default=1000)
     capacity_current = models.IntegerField(default=1000)
     low_percent = models.IntegerField(default=15)

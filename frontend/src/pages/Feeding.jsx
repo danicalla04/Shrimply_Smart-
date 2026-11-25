@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { useLanguage } from '../context/LanguageContext';
 import {
   DEFAULT_FEEDER_STATE,
+  DEFAULT_FEED_RATE_GRAMS_PER_MINUTE,
   capacityPercent,
   hopperPercentFromDistance,
   fetchFeederState,
@@ -20,6 +21,12 @@ import {
 import { wemosApi } from '../services/wemos';
 import { getChannelsWebSocketUrl } from '../services/apiConfig';
 import { alertWebSocket } from '../services/alertWebSocket';
+
+function formatFeedDuration(grams, rate) {
+  const seconds = Number(grams) * 60 / Number(rate || DEFAULT_FEED_RATE_GRAMS_PER_MINUTE);
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'Unavailable';
+  return seconds < 60 ? `${Math.round(seconds)} sec` : `${(seconds / 60).toFixed(1)} min`;
+}
 
 function Toggle({ checked, onChange, label }) {
   const privileges = usePrivileges()
@@ -96,7 +103,7 @@ export default function Feeding() {
   const [todayPlan, setTodayPlan] = useState(null);
   const [slotEditor, setSlotEditor] = useState(null); // { oldTime, time, kg }
   const [portionDraft, setPortionDraft] = useState('0.05');
-  const [rateDraft, setRateDraft] = useState('40.14');
+  const [rateDraft, setRateDraft] = useState(String(DEFAULT_FEED_RATE_GRAMS_PER_MINUTE));
   const [capacityDraft, setCapacityDraft] = useState('1');
   const [newDailyKg, setNewDailyKg] = useState('0.05');
   const lastTelemetryRef = useRef(null);
@@ -1064,7 +1071,7 @@ export default function Feeding() {
                               {kg != null && (
                                 <span className="ml-2 text-sm font-bold text-emerald-700">{kg} kg</span>
                               )}
-                              <span className="ml-2 text-xs text-slate-500">≈ {Math.round((Number(kg) * 1000 / Number(state.feedRateGramsPerMinute || 40.14)) * 10) / 10} min</span>
+                              <span className="ml-2 text-xs text-slate-500">≈ {formatFeedDuration(Number(kg) * 1000, state.feedRateGramsPerMinute)}</span>
                               <span className="ml-2 text-xs text-blue-600 font-medium">Edit</span>
                             </button>
                             <button
@@ -1238,7 +1245,7 @@ export default function Feeding() {
                     onChange={(e) => setRateDraft(e.target.value)} onBlur={saveRateDraft}
                     disabled={!privileges.update}
                     className="w-full border-2 border-indigo-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-indigo-500" />
-                  <p className="text-xs text-slate-500 mt-1">Measured starting value: 40.14 g/min. Change it when you recalibrate the feeder; saves when you leave this field.</p>
+                  <p className="text-xs text-slate-500 mt-1">Measured from two 10-second tests: (422 − 226.8) g and (434.1 − 226.8) g, averaging 1,207.5 g/min. Change it when you recalibrate; saves when you leave this field.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-2">Hopper capacity (kg)</label>
@@ -1380,7 +1387,7 @@ export default function Feeding() {
                   onChange={(e) => setSlotEditor((s) => ({ ...s, kg: e.target.value }))}
                   className="w-full rounded-xl border-2 border-slate-200 px-4 py-3 font-semibold"
                 />
-                {Number(slotEditor.kg) > 0 && <p className="text-sm text-slate-600">Estimated run time: {(Number(slotEditor.kg) * 1000 / Number(state.feedRateGramsPerMinute || 40.14)).toFixed(1)} minutes at {state.feedRateGramsPerMinute} g/min.</p>}
+                {Number(slotEditor.kg) > 0 && <p className="text-sm text-slate-600">Estimated run time: {formatFeedDuration(Number(slotEditor.kg) * 1000, state.feedRateGramsPerMinute)} at {state.feedRateGramsPerMinute} g/min.</p>}
                 {Number(slotEditor.kg) * 1000 > Number(state.capacityCurrent ?? 0) && <p className="text-sm text-amber-700">The saved feed amount exceeds the currently recorded feed left ({state.capacityCurrent ?? 0} g). The feeder cannot dispense the full amount until it is refilled.</p>}
               </div>
             </div>

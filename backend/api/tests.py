@@ -897,7 +897,7 @@ class FeederDailyPortionTests(APITestCase):
         self.feeder = Feeder.objects.create(
             schedule_type='daily', daily_schedule=['04:30', '12:00'],
             daily_portions_grams={'04:30': 20000}, portion_grams=50,
-            feed_rate_grams_per_minute=40.14,
+            feed_rate_grams_per_minute=1207.5,
         )
         self.client.force_authenticate(User.objects.create_user('feeder_settings_admin', is_staff=True))
 
@@ -908,20 +908,21 @@ class FeederDailyPortionTests(APITestCase):
         due_at = timezone.make_aware(datetime(2026, 11, 26, 4, 30))
         self.assertEqual(self.feeder.portion_for_due_feed(due_at), 20000)
         self.assertEqual(self.feeder.portion_for_due_feed(due_at.replace(hour=12)), 50)
-        self.assertAlmostEqual(run_seconds_for_grams(20000, 40.14), 29895.366, places=2)
+        self.assertAlmostEqual(run_seconds_for_grams(1000, 1207.5), 49.68944, places=4)
+        self.assertAlmostEqual(run_seconds_for_grams(20000, 1207.5), 993.78882, places=4)
 
     def test_settings_save_daily_amount_and_feed_rate(self):
         response = self.client.post('/api/feeder/update_settings/', {
             'schedule_type': 'daily',
             'daily_schedule': ['04:30'],
             'daily_portions_grams': {'04:30': 20000},
-            'feed_rate_grams_per_minute': 40.14,
+            'feed_rate_grams_per_minute': 1207.5,
             'capacity_max': 25000,
         }, format='json')
         self.assertEqual(response.status_code, 200)
         self.feeder.refresh_from_db()
         self.assertEqual(self.feeder.daily_portions_grams, {'04:30': 20000})
-        self.assertEqual(self.feeder.feed_rate_grams_per_minute, 40.14)
+        self.assertEqual(self.feeder.feed_rate_grams_per_minute, 1207.5)
         self.assertEqual(self.feeder.capacity_max, 25000)
 
     def test_invalid_feed_rate_is_rejected(self):
@@ -975,3 +976,20 @@ class FeederDailyPortionTests(APITestCase):
         alert = Alert.objects.get(parameter='feeder_capacity', resolved=False)
         self.assertEqual((alert.severity, alert.value), ('warning', 10))
         self.assertIn('15%', alert.message)
+
+
+class FeederRateRecalibrationTests(APITestCase):
+    def test_old_default_is_updated_but_custom_rate_is_preserved(self):
+        from importlib import import_module
+        from types import SimpleNamespace
+        from django.apps import apps
+        from .models import Feeder
+
+        old = Feeder.objects.create(feed_rate_grams_per_minute=40.14)
+        custom = Feeder.objects.create(feed_rate_grams_per_minute=800)
+        migration = import_module('api.migrations.0038_feeder_rate_recalibration')
+        migration.recalibrate_existing_feeders(apps, SimpleNamespace(connection=connection))
+        old.refresh_from_db()
+        custom.refresh_from_db()
+        self.assertEqual(old.feed_rate_grams_per_minute, 1207.5)
+        self.assertEqual(custom.feed_rate_grams_per_minute, 800)

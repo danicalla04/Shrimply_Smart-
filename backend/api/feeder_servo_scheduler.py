@@ -52,7 +52,7 @@ def enqueue_servo_job(
     if calibration_grams_30s is None:
         from api.models import Feeder
         feeder = Feeder.objects.first()
-        calibration_grams_30s = float(feeder.feed_rate_grams_per_minute if feeder else 40.14) / 2
+        calibration_grams_30s = float(feeder.feed_rate_grams_per_minute if feeder else 1207.5) / 2
 
     off_at = on_at + timedelta(seconds=run_seconds_for_grams(grams_int, calibration_grams_30s * 2))
     now = timezone.now()
