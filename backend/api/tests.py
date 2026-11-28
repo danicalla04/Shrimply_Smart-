@@ -6,6 +6,54 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 
+class FeederLiveTelemetryTests(APITestCase):
+    def setUp(self):
+        from django.core.cache import caches
+
+        caches['feeder_live'].clear()
+
+    def tearDown(self):
+        from django.core.cache import caches
+
+        caches['feeder_live'].clear()
+
+    def test_device_upload_updates_live_distance_without_saving_each_minute(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from .feeder_live import latest_feeder_sample, record_feeder_sample
+        from .models import FeederTelemetry
+
+        first = timezone.now()
+        sample, saved = record_feeder_sample(distance_cm=25, now=first)
+        self.assertTrue(saved)
+        self.assertEqual(sample['distance_cm'], 25)
+        sample, saved = record_feeder_sample(distance_cm=26, now=first + timedelta(minutes=1))
+        self.assertFalse(saved)
+        self.assertEqual(FeederTelemetry.objects.count(), 1)
+        self.assertEqual(latest_feeder_sample(first + timedelta(minutes=1))['distance_cm'], 26)
+        self.assertIsNone(latest_feeder_sample(first + timedelta(minutes=4)))
+
+        sample, saved = record_feeder_sample(distance_cm=27, now=first + timedelta(minutes=7, seconds=1))
+        self.assertTrue(saved)
+        self.assertEqual(FeederTelemetry.objects.count(), 2)
+        self.assertEqual(sample['distance_cm'], 27)
+
+    def test_device_post_is_visible_to_page_and_no_echo_keeps_last_valid_sample(self):
+        from .models import FeederTelemetry
+
+        url = reverse('update_feeder_telemetry')
+        response = self.client.post(url, {'device_id': 'wemos-feeder', 'distance_cm': '24.5'})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['saved_history'])
+        self.assertEqual(self.client.get(reverse('latest_feeder_telemetry')).data['distance_cm'], 24.5)
+
+        response = self.client.post(url, {'device_id': 'wemos-feeder'})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['saved_history'])
+        self.assertEqual(FeederTelemetry.objects.count(), 1)
+        self.assertEqual(self.client.get(reverse('latest_feeder_telemetry')).data['distance_cm'], 24.5)
+
+
 class AccountCreationTests(APITestCase):
     def setUp(self):
         self.admin = User.objects.create_user('account_admin', password='Admin-Example-7482', is_staff=True)
@@ -681,7 +729,7 @@ class ConnectionAlertRecoveryTests(APITestCase):
         from .alert_service import AlertService
         reading = SensorReading.objects.create(temperature=28, ph=7, turbidity=10, tds=800)
         telemetry = FeederTelemetry.objects.create(distance_cm=23)
-        reading.timestamp = telemetry.timestamp = timezone.now() - timedelta(minutes=2)
+        reading.timestamp = telemetry.timestamp = timezone.now() - timedelta(minutes=3)
         offline = self.alert('sensor_offline')
         connection = self.alert('feeder_connection')
         AlertService.recover_alerts(reading, telemetry)

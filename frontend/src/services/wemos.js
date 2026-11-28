@@ -55,7 +55,7 @@ async function fetchJsonWithTimeout(url, timeoutMs = 1500) {
 
 async function getLatestTelemetryFallback() {
   // Backend endpoint returns { motor_state, distance_cm, timestamp, ... }
-  const data = await fetchJsonWithTimeout(`${API_BASE}/latest-feeder-telemetry/`, 1500);
+  const data = await fetchJsonWithTimeout(`${API_BASE}/latest-feeder-telemetry/`, 5000);
   return {
     motor_state: normalizeServo(data?.motor_state),
     distance_cm: (data?.distance_cm ?? 'NA'),

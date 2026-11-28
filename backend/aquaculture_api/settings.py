@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+import tempfile
 from dotenv import load_dotenv
 import pymysql
 
@@ -90,6 +91,16 @@ ASGI_APPLICATION = 'aquaculture_api.asgi.application'
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
+
+# Share the latest feeder reading between Gunicorn workers without adding a
+# history row for every one-minute device upload.
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
+    'feeder_live': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': os.path.join(tempfile.gettempdir(), 'shrimplysmart-feeder-live'),
     },
 }
 

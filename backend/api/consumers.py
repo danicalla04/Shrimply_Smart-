@@ -121,16 +121,6 @@ class FeederConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _get_latest_telemetry(self):
-        from .models import FeederTelemetry
+        from .feeder_live import latest_feeder_sample
 
-        latest = FeederTelemetry.objects.order_by('-timestamp').first()
-        if not latest:
-            return None
-
-        return {
-            'id': latest.id,
-            'timestamp': latest.timestamp.isoformat() if latest.timestamp else None,
-            'motor_state': latest.motor_state,
-            'distance_cm': latest.distance_cm,
-            'device_id': latest.device_id,
-        }
+        return latest_feeder_sample()

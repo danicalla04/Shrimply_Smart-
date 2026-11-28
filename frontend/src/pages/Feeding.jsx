@@ -104,10 +104,8 @@ export default function Feeding() {
   const [slotEditor, setSlotEditor] = useState(null); // { oldTime, time, kg }
   const [portionDraft, setPortionDraft] = useState('0.05');
   const [rateDraft, setRateDraft] = useState(String(DEFAULT_FEED_RATE_GRAMS_PER_MINUTE));
-  const [capacityDraft, setCapacityDraft] = useState('1');
-  const [newDailyKg, setNewDailyKg] = useState('0.05');
   const lastTelemetryRef = useRef(null);
-  const TELEMETRY_STALE_MS = 20000;
+  const TELEMETRY_STALE_MS = 150000;
 
   const isTelemetryFresh = (ts = lastTelemetryRef.current) => {
     if (!ts) return false;
@@ -225,17 +223,6 @@ export default function Feeding() {
       setRateDraft(String(updated.feedRateGramsPerMinute));
       flash('Feed rate saved', 'success');
     } catch (error) { flash(error.message || 'Could not save feed rate'); }
-  };
-
-  const saveCapacityDraft = async () => {
-    const kg = Number(capacityDraft);
-    if (!Number.isFinite(kg) || kg <= 0) { flash('Enter a positive hopper capacity in kg'); return; }
-    try {
-      const updated = await updateFeederSettings({ capacity_max: kgInputToGrams(kg) });
-      setState(updated);
-      setCapacityDraft(String(gramsToKgInput(updated.capacityMax)));
-      flash('Hopper capacity saved', 'success');
-    } catch (error) { flash(error.message || 'Could not save hopper capacity'); }
   };
 
   const saveSlotEditor = async () => {
@@ -480,8 +467,6 @@ export default function Feeding() {
         if (summary) setDispenseSummary(summary);
         setPortionDraft(String(gramsToKgInput(feederState.portionGrams)));
         setRateDraft(String(feederState.feedRateGramsPerMinute));
-        setCapacityDraft(String(gramsToKgInput(feederState.capacityMax)));
-        setNewDailyKg(String(gramsToKgInput(feederState.portionGrams)));
         applyFeedingHistory(history);
         const plan = feederState.todayFeedPlan;
         if (plan?.date === todayISO()) {
@@ -533,6 +518,7 @@ export default function Feeding() {
 
             if (data.timestamp) {
               setLastTelemetryTimestamp(data.timestamp);
+              setNow(Date.now());
             }
 
             if (data.distance_cm !== undefined) {
@@ -599,15 +585,15 @@ export default function Feeding() {
     };
   }, []);
 
-  // Poll Django feeder telemetry (WeMos → PHP → MySQL). Do not use the
-  // device HTTP fallback — that returns the last saved row forever.
-  useInterval(async () => {
+  // Read the latest live distance when this page opens and every minute.
+  const refreshFeederTelemetry = async () => {
     try {
       const tel = await wemosApi.getLatestTelemetry().catch(() => null);
       if (tel?.timestamp) {
         const age = Date.now() - new Date(tel.timestamp).getTime();
         if (Number.isFinite(age) && age >= -5000 && age <= TELEMETRY_STALE_MS) {
           setLastTelemetryTimestamp(tel.timestamp);
+          setNow(Date.now());
           if (tel.distance_cm != null && tel.distance_cm !== 'NA') {
             setUltrasonicDistance(String(tel.distance_cm));
           }
@@ -617,7 +603,10 @@ export default function Feeding() {
     } catch {
       // ignore
     }
-  }, 3000);
+  };
+
+  useEffect(() => { refreshFeederTelemetry(); }, []);
+  useInterval(refreshFeederTelemetry, 60000);
 
   // Migration: remove legacy 'adaptive' schedule type.
   useEffect(() => {
@@ -659,8 +648,9 @@ export default function Feeding() {
 
   const telemetryAgeMs = lastTelemetryTimestamp ? (now - new Date(lastTelemetryTimestamp).getTime()) : Number.POSITIVE_INFINITY;
   const deviceConnected = Number.isFinite(telemetryAgeMs) && telemetryAgeMs >= 0 && telemetryAgeMs <= TELEMETRY_STALE_MS;
-  const ultrasonicConnected = deviceConnected && ultrasonicDistance !== 'NA';
-  const capPct = ultrasonicConnected ? hopperPercentFromDistance(ultrasonicDistance) : null
+  const ultrasonicCm = Number(ultrasonicDistance);
+  const ultrasonicConnected = deviceConnected && ultrasonicDistance !== 'NA' && Number.isFinite(ultrasonicCm) && ultrasonicCm >= 0;
+  const capPct = ultrasonicConnected ? hopperPercentFromDistance(ultrasonicCm) : null
   const savedCapPct = capacityPercent(state)
   const lowThreshold = 15
   const displayPct = capPct ?? savedCapPct
@@ -730,11 +720,18 @@ export default function Feeding() {
       <div className="grid-modern mb-8">
         <div className="metric-card-modern">
           <div className="text-sm font-medium text-cyan-200/70 uppercase tracking-wide">Feed left in feeder</div>
-          <div className="mt-3 text-4xl font-bold text-cyan-100">{capPct == null ? `${savedCapPct}%` : `${capPct}%`}</div>
-          <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-700" role="progressbar" aria-label="Feed remaining" aria-valuenow={capPct ?? savedCapPct} aria-valuemin="0" aria-valuemax="100">
-            <div className={`h-full rounded-full ${lowFeed ? 'bg-red-500' : 'bg-cyan-400'}`} style={{ width: `${displayPct}%` }} />
+          <div className="mt-3 text-4xl font-bold text-cyan-100">{capPct == null ? 'Unavailable' : `${capPct}%`}</div>
+          {capPct != null && (
+            <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-700" role="progressbar" aria-label="Live feed remaining" aria-valuenow={capPct} aria-valuemin="0" aria-valuemax="100">
+              <div className={`h-full rounded-full ${lowFeed ? 'bg-red-500' : 'bg-cyan-400'}`} style={{ width: `${capPct}%` }} />
+            </div>
+          )}
+          <p className="mt-2 text-xs text-cyan-200/60">{capPct == null ? `No fresh ultrasonic reading. Saved software estimate: ${savedCapPct}% (not a live measurement).` : 'Live level from ultrasonic sensor'}</p>
+          <div className="mt-4 flex items-center justify-between rounded-xl border border-cyan-400/20 bg-slate-950/40 px-4 py-3">
+            <span className="text-sm text-cyan-100/80">Sensor-to-feed distance</span>
+            <strong className="text-xl text-cyan-100" aria-live="polite">{ultrasonicConnected ? `${ultrasonicCm.toFixed(1)} cm` : 'Unavailable'}</strong>
           </div>
-          <p className="mt-2 text-xs text-cyan-200/60">{capPct == null ? 'Saved feed estimate; live feeder level unavailable' : 'Live level from ultrasonic sensor'}</p>
+          <p className="mt-2 text-xs text-cyan-200/60">This is the gap from the ultrasonic sensor to the feed surface. A larger gap means less feed. The percentage uses an approximate 20 cm full / 32 cm low calibration.</p>
         </div>
         <div className="metric-card-modern">
           <div className="flex items-center justify-between mb-4">
@@ -1012,14 +1009,9 @@ export default function Feeding() {
                         onBlur={savePortionDraft}
                         min={0.001}
                       />
-                      <p className="text-xs text-slate-500 mt-1">Default for Feed Once and slots without their own amount. Saves when you leave this field.</p>
+                      <p className="text-xs text-slate-500 mt-1">New times use this amount. Click a time to set a different amount. Saves when you leave this field.</p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <label className="text-sm font-semibold text-slate-700">Amount for new time (kg)
-                        <input type="number" step="0.001" min="0.001" value={newDailyKg} onChange={(e) => setNewDailyKg(e.target.value)} disabled={!privileges.update} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
-                      </label>
-                    </div>
                     <div className="flex items-center gap-2">
                       <input
                         type="time"
@@ -1034,12 +1026,10 @@ export default function Feeding() {
                             const next = newDailyTime;
                             if (!next || !next.trim()) return;
                             if (currentTimes.includes(next)) { flash('This time is already in the schedule'); return; }
-                            const grams = kgInputToGrams(newDailyKg);
-                            if (!Number.isFinite(Number(newDailyKg)) || Number(newDailyKg) <= 0) { flash('Enter a positive amount in kg'); return; }
                             const newSchedule = [...currentTimes, next].sort();
-                            const updatedState = await updateFeederSettings({ schedule_type: 'daily', daily_schedule: newSchedule, daily_portions_grams: { ...(state.dailyPortionsGrams || {}), [next]: grams } });
+                            const updatedState = await updateFeederSettings({ schedule_type: 'daily', daily_schedule: newSchedule });
                             setState(updatedState);
-                            flash(`${next} scheduled for ${newDailyKg} kg`, 'success');
+                            flash(`${next} added using Portion per Feed`, 'success');
                           } catch (error) {
                             console.error('Failed to add time:', error);
                             flash(error.message || 'Could not add feeding time');
@@ -1246,14 +1236,6 @@ export default function Feeding() {
                     disabled={!privileges.update}
                     className="w-full border-2 border-indigo-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-indigo-500" />
                   <p className="text-xs text-slate-500 mt-1">Measured from two 10-second tests: (422 − 226.8) g and (434.1 − 226.8) g, averaging 1,207.5 g/min. Change it when you recalibrate; saves when you leave this field.</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">Hopper capacity (kg)</label>
-                  <input type="number" step="0.001" min="0.001" value={capacityDraft}
-                    onChange={(e) => setCapacityDraft(e.target.value)} onBlur={saveCapacityDraft}
-                    disabled={!privileges.update}
-                    className="w-full border-2 border-indigo-200 rounded-xl px-4 py-3 text-base font-semibold focus:border-indigo-500" />
-                  <p className="text-xs text-slate-500 mt-1">Enter the feeder's actual full capacity. After loading feed, use Refill to update the feed-left estimate.</p>
                 </div>
                 <div>
                   <div className="text-sm font-bold text-slate-700 mb-2">Daily times</div>

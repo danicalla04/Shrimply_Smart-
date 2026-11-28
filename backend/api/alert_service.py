@@ -10,7 +10,7 @@ from django.core.mail import send_mail
 from django.core.cache import cache
 from django.conf import settings
 from .models import Alert, Threshold, SensorReading, HistorySettings
-from .feeder_level import LOW_FEED_PERCENT, fresh_hopper_percent, hopper_percent
+from .feeder_level import LOW_FEED_PERCENT, TELEMETRY_MAX_AGE_SECONDS, fresh_hopper_percent, hopper_percent
 from datetime import timedelta
 import logging
 import threading
@@ -267,9 +267,8 @@ class AlertService:
     DISCONNECT_DEDUPE_MINUTES = 30
     # No new reading for this long → treat stream as offline (matches Dashboard UI)
     STALE_READING_SECONDS = 45
-    # No feeder telemetry for this long → ultrasonic/feeder device offline
-    # (matches the 20s "Telemetry age" threshold used on the Feeding page)
-    FEEDER_STALE_SECONDS = 20
+    # Allow one missed one-minute sample before marking the ultrasonic offline.
+    FEEDER_STALE_SECONDS = TELEMETRY_MAX_AGE_SECONDS
     # After user marks offline/disconnect as read, do not recreate until sensors recover
     _SNOOZE_UNTIL_ONLINE_PREFIX = 'alert:snooze_until_online:'
     _CREATE_LOCK_PREFIX = 'alert:creating:'
@@ -490,19 +489,15 @@ class AlertService:
         created = []
         param = 'feeder_connection'
         now = timezone.now()
-        latest = FeederTelemetry.objects.order_by('-timestamp').first()
+        level = fresh_hopper_percent(now)
+        if level is not None:
+            AlertService.recover_alerts(feeder_telemetry=level[1])
+            return created
+        latest = FeederTelemetry.objects.filter(distance_cm__isnull=False).order_by('-timestamp').first()
 
         age_sec = None
         if latest is not None and latest.timestamp is not None:
             age_sec = (now - latest.timestamp).total_seconds()
-
-        stale = latest is None or (
-            age_sec is not None and age_sec >= AlertService.FEEDER_STALE_SECONDS
-        )
-
-        if not stale:
-            AlertService.recover_alerts(feeder_telemetry=latest)
-            return created
 
         if AlertService.is_snoozed(param):
             return created
@@ -513,7 +508,7 @@ class AlertService:
             when_str = timezone.localtime(latest.timestamp).strftime('%Y-%m-%d %H:%M:%S')
             msg = (
                 f'Feeder device offline — ultrasonic disconnected. '
-                f'Last telemetry at {when_str} ({age_sec:.0f}s ago).'
+                f'Last saved history at {when_str} ({age_sec:.0f}s ago).'
             )
 
         # Keep a single open alert; just refresh its timestamp/message.

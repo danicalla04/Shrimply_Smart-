@@ -303,7 +303,7 @@ export function capacityPercent(state) {
 /** Ultrasonic hopper map: 20 cm = full, 32 cm = 10% (low-feed alert). */
 export const HOPPER_FULL_CM = 20
 export const HOPPER_TEN_PERCENT_CM = 32
-export const FEEDER_TELEMETRY_STALE_MS = 20_000
+export const FEEDER_TELEMETRY_STALE_MS = 150_000
 
 export function hopperPercentFromDistance(distanceCm) {
   const d = Number(distanceCm)

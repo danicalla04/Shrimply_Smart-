@@ -1,14 +1,18 @@
 """Shared hopper level conversion for alerts and automatic hardware status."""
 
 import math
+from types import SimpleNamespace
 
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+
+from .feeder_live import LIVE_MAX_AGE_SECONDS, latest_feeder_sample
 
 
 HOPPER_FULL_CM = 20.0
 HOPPER_TEN_PERCENT_CM = 32.0
 LOW_FEED_PERCENT = 15.0
-TELEMETRY_MAX_AGE_SECONDS = 20
+TELEMETRY_MAX_AGE_SECONDS = LIVE_MAX_AGE_SECONDS
 
 
 def hopper_percent(distance_cm):
@@ -23,14 +27,11 @@ def hopper_percent(distance_cm):
 
 
 def fresh_hopper_percent(now=None):
-    from .models import FeederTelemetry
-
     now = now or timezone.now()
-    latest = FeederTelemetry.objects.filter(distance_cm__isnull=False).order_by('-timestamp').first()
-    if latest is None or latest.timestamp is None:
+    sample = latest_feeder_sample(now)
+    if sample is None:
         return None
-    age = (now - latest.timestamp).total_seconds()
-    if not -5 <= age <= TELEMETRY_MAX_AGE_SECONDS:
-        return None
-    percent = hopper_percent(latest.distance_cm)
+    percent = hopper_percent(sample['distance_cm'])
+    timestamp = parse_datetime(sample['timestamp'])
+    latest = SimpleNamespace(distance_cm=sample['distance_cm'], timestamp=timestamp)
     return (percent, latest) if percent is not None else None

@@ -4,7 +4,7 @@ import { usePrivileges } from '../context/PrivilegesContext'
 import { authService } from '../services/auth'
 import API_BASE from '../services/apiConfig'
 import { wemosApi } from '../services/wemos'
-import { hopperPercentFromDistance } from '../services/feeder'
+import { FEEDER_TELEMETRY_STALE_MS, hopperPercentFromDistance } from '../services/feeder'
 
 const OUTPUTS = [
   { target: 'LED1', label: 'Blue LED', pin: 'D9' },
@@ -63,7 +63,7 @@ export default function HardwareControls() {
   if (!isAdmin || username !== 'admin123') return <Navigate to="/dashboard" replace />
 
   const age = telemetry?.timestamp ? now - new Date(telemetry.timestamp).getTime() : Infinity
-  const online = Number.isFinite(age) && age >= -5000 && age <= 20000
+  const online = Number.isFinite(age) && age >= -5000 && age <= FEEDER_TELEMETRY_STALE_MS
   const distance = Number(telemetry?.distance_cm)
   const capacity = online && telemetry?.distance_cm != null && Number.isFinite(distance)
     ? hopperPercentFromDistance(distance) : null

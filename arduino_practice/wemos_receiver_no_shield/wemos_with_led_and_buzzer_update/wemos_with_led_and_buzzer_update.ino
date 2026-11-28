@@ -63,7 +63,7 @@
  *
  * HOW IT WORKS:
  *   1. Arduino SoftSerial every ~5s → POST sensor_api.php
- *   2. Ultrasonic every 5s → Serial + POST feeder_api.php (website)
+ *   2. Ultrasonic every 60s → Serial + POST Django live feeder API (website)
  *   3. Website Servo ON → spin LEFT (L); Servo OFF → spin RIGHT (R)
  *      (WeMos polls servo_cmd_api.php)
  *   4. USB Serial still accepts: L / R / L90 / R45 / 1–180 / 0
@@ -85,7 +85,7 @@ const char* WIFI_PASSWORD = "123456789";
 // WeMos Wi-Fi must have internet (phone hotspot → mobile data ON).
 // Use http:// not https:// — ESP8266 HTTPClient here is HTTP-only.
 const char* SERVER_URL    = "http://187.77.139.246/sensor_api.php";
-const char* FEEDER_URL    = "http://187.77.139.246/feeder_api.php";
+const char* FEEDER_URL    = "http://187.77.139.246/api/update-feeder-telemetry/";
 const char* SERVO_CMD_URL = "http://187.77.139.246/servo_cmd_api.php";
 const char* OUTPUT_CMD_URL = "http://187.77.139.246/api/hardware/commands/poll/";
 const char* STATUS_URL = "http://187.77.139.246/api/hardware/status/";
@@ -115,7 +115,7 @@ const int SPIN_LEFT_US  = 1000;   // L / website Servo ON
 const int SPIN_RIGHT_US = 2000;   // R / website Servo OFF
 const int SPIN_DEGREES = 45;      // website + Serial L/R → L45 / R45
 const float MS_PER_DEGREE = 10;   // 160° → 1600 ms. Raise if rotation is short.
-const unsigned long DISTANCE_INTERVAL_MS = 5000;
+const unsigned long DISTANCE_INTERVAL_MS = 60000;
 const unsigned long SERVO_CMD_POLL_MS = 1500;
 const unsigned long OUTPUT_CMD_POLL_MS = 1500;
 const unsigned long STATUS_POLL_MS = 5000;

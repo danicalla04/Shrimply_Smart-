@@ -27,6 +27,7 @@ from asgiref.sync import async_to_sync
 from .alert_service import AlertService
 from .feeder_servo_scheduler import cancel_future_servo_jobs, enqueue_servo_job
 from .feeder_level import LOW_FEED_PERCENT, fresh_hopper_percent
+from .feeder_live import latest_feeder_sample, record_feeder_sample
 import requests
 import os
 import random
@@ -2049,7 +2050,7 @@ def update_sensors(request):
 @api_view(['POST'])
 @permission_classes([AllowAny, AccountPrivileges])
 def update_feeder_telemetry(request):
-    """Store feeder telemetry (motor state + ultrasonic distance).
+    """Receive live feeder distance; save a history row every seven minutes.
 
     POST /api/update-feeder-telemetry/
     Body example:
@@ -2066,7 +2067,7 @@ def update_feeder_telemetry(request):
     if distance_val is None:
         distance_val = data.get('distance')
 
-    device_id = str(data.get('device_id') or '').strip()
+    device_id = str(data.get('device_id') or 'wemos-feeder').strip()[:64]
 
     motor_state_str = str(motor_state or '').strip().upper()
     if len(motor_state_str) > 10:
@@ -2076,30 +2077,42 @@ def update_feeder_telemetry(request):
         distance_cm = float(distance_val) if distance_val is not None and distance_val != '' else None
     except Exception:
         return Response({'error': 'Invalid distance value'}, status=400)
+    if distance_cm is not None and (not math.isfinite(distance_cm) or not 2 <= distance_cm <= 400):
+        return Response({'error': 'Distance must be between 2 and 400 cm'}, status=400)
 
-    telemetry = FeederTelemetry.objects.create(
-        motor_state=motor_state_str,
-        distance_cm=distance_cm,
-        device_id=device_id,
+    sample, saved = record_feeder_sample(
+        motor_state=motor_state_str, distance_cm=distance_cm, device_id=device_id,
     )
+    if sample is not None:
+        try:
+            channel_layer = get_channel_layer()
+            if channel_layer is not None:
+                async_to_sync(channel_layer.group_send)('feeder_updates', {'type': 'feeder_telemetry', 'data': sample})
+        except Exception as exc:
+            logger.warning('Could not broadcast live feeder reading: %s', exc)
+        try:
+            AlertService.check_feeder_connection()
+            AlertService.check_feeder_level()
+        except Exception as exc:
+            logger.warning('Feeder alert check after telemetry upload failed: %s', exc)
 
-    return Response(FeederTelemetrySerializer(telemetry).data, status=201)
+    return Response({'accepted': True, 'saved_history': saved, **(sample or {})}, status=200)
 
 
 @api_view(['GET'])
 @permission_classes([AllowAny, AccountPrivileges])
 def latest_feeder_telemetry(request):
-    latest = FeederTelemetry.objects.order_by('-timestamp').first()
-    if not latest:
-        return Response({'error': 'No feeder telemetry yet'}, status=404)
-    # Feeding page polls this every 3s — run hopper-level / connection alerts here
+    latest = latest_feeder_sample()
+    # Feeding page polls this every minute; check hopper and connection alerts here
     # so they fire even when Dashboard /sensors/latest is not open.
     try:
         AlertService.check_feeder_connection()
         AlertService.check_feeder_level()
     except Exception as e:
         logger.warning('Feeder alert check on latest telemetry failed: %s', e)
-    return Response(FeederTelemetrySerializer(latest).data, status=200)
+    if latest is None:
+        return Response({'error': 'No recent feeder distance'}, status=404)
+    return Response(latest, status=200)
 
 
 # Device ingestion endpoint: devices POST JSON to this endpoint with headers:

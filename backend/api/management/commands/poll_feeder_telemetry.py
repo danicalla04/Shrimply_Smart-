@@ -6,56 +6,11 @@ from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from datetime import timedelta
 
-from api.models import Alert, FeederTelemetry, SensorReading, Threshold
+from api.models import SensorReading, Threshold
+from api.alert_service import AlertService
+from api.feeder_live import record_feeder_sample
 from api.feeder_servo_scheduler import process_servo_schedule_tick, ensure_next_servo_job_seeded
-
-
-def _create_and_broadcast_alert(*, parameter: str, severity: str, value: float, threshold_min: float, threshold_max: float, message: str):
-    cutoff = timezone.now() - timedelta(hours=1)
-    if Alert.objects.filter(parameter=parameter, severity=severity, resolved=False, timestamp__gte=cutoff).exists():
-        return None
-
-    alert = Alert.objects.create(
-        parameter=parameter,
-        severity=severity,
-        value=float(value),
-        threshold_min=float(threshold_min),
-        threshold_max=float(threshold_max),
-        message=str(message),
-        timestamp=timezone.now(),
-    )
-
-    channel_layer = get_channel_layer()
-    if channel_layer is not None:
-        payload = {
-            'id': alert.id,
-            'parameter': alert.parameter,
-            'severity': alert.severity,
-            'value': alert.value,
-            'threshold_min': alert.threshold_min,
-            'threshold_max': alert.threshold_max,
-            'message': alert.message,
-            'timestamp': alert.timestamp.isoformat(),
-            'resolved': alert.resolved,
-        }
-        try:
-            async_to_sync(channel_layer.group_send)(
-                'alert_updates',
-                {
-                    'type': 'alert_notification',
-                    'data': {
-                        'event': 'new_alert',
-                        'alert': payload,
-                    },
-                },
-            )
-        except Exception:
-            # Don't crash poller if websocket push fails.
-            pass
-
-    return alert
 
 
 class Command(BaseCommand):
@@ -65,8 +20,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--interval",
             type=float,
-            default=6.0,
-            help="Polling interval in seconds (default: 6.0)",
+            default=60.0,
+            help="Polling interval in seconds (default: 60.0)",
         )
         parser.add_argument(
             "--path",
@@ -130,7 +85,6 @@ class Command(BaseCommand):
             next_poll_at = time.monotonic()
             next_schedule_at = time.monotonic()
             next_seed_at = time.monotonic()
-            last_poll_ok = True
 
             while True:
                 try:
@@ -171,22 +125,8 @@ class Command(BaseCommand):
                         if resp is None or not resp.ok:
                             if resp is not None:
                                 self.stderr.write(f"HTTP {resp.status_code}: {(resp.text or '')[:200]}")
-
-                            _create_and_broadcast_alert(
-                                parameter='feeder_connection',
-                                severity='critical',
-                                value=0.0,
-                                threshold_min=1.0,
-                                threshold_max=1.0,
-                                message='Feeder device disconnected or unreachable.',
-                            )
-                            last_poll_ok = False
+                            AlertService.check_feeder_connection()
                         else:
-                            if not last_poll_ok:
-                                # Mark previous connection alerts resolved when device is reachable again.
-                                Alert.objects.filter(parameter='feeder_connection', resolved=False).update(resolved=True)
-                            last_poll_ok = True
-
                             # If the device includes full sensor payload in `/api/status`, persist it too.
                             # This allows laptop-side polling to populate the SensorReading table without
                             # requiring ESP->PC inbound firewall rules.
@@ -279,14 +219,23 @@ class Command(BaseCommand):
                                 except Exception:
                                     distance_cm = None
 
-                            telemetry = FeederTelemetry.objects.create(
+                            telemetry, saved_history = record_feeder_sample(
                                 motor_state=motor_state,
                                 distance_cm=distance_cm,
                                 device_id=device_id,
                             )
-                            self.stdout.write(
-                                f"Saved telemetry id={telemetry.id} motor={motor_state} distance={distance_cm}"
-                            )
+                            if telemetry is not None:
+                                channel_layer = get_channel_layer()
+                                if channel_layer is not None:
+                                    async_to_sync(channel_layer.group_send)(
+                                        'feeder_updates',
+                                        {'type': 'feeder_telemetry', 'data': telemetry},
+                                    )
+                                self.stdout.write(
+                                    f"Live feeder distance={distance_cm} cm; history saved={saved_history}"
+                                )
+                            AlertService.check_feeder_connection()
+                            AlertService.check_feeder_level()
                 except KeyboardInterrupt:
                     raise
                 except Exception as e:
