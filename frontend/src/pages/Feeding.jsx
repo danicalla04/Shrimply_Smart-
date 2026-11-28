@@ -666,7 +666,7 @@ export default function Feeding() {
   const deviceConnected = Number.isFinite(telemetryAgeMs) && telemetryAgeMs >= 0 && telemetryAgeMs <= TELEMETRY_STALE_MS;
   const ultrasonicCm = Number(ultrasonicDistance);
   const ultrasonicConnected = deviceConnected && ultrasonicDistance !== 'NA' && Number.isFinite(ultrasonicCm) && ultrasonicCm >= 0;
-  const capPct = ultrasonicConnected ? hopperPercentFromDistance(ultrasonicCm) : null
+  const capPct = ultrasonicConnected ? hopperPercentFromDistance(ultrasonicCm, state.hopperEmptyDistanceCm) : null
   const savedCapPct = capacityPercent(state)
   const lowThreshold = 15
   const displayPct = capPct ?? savedCapPct
@@ -747,7 +747,7 @@ export default function Feeding() {
             <span className="text-sm text-cyan-100/80">Sensor-to-feed distance</span>
             <strong className="text-xl text-cyan-100" aria-live="polite">{ultrasonicConnected ? `${ultrasonicCm.toFixed(1)} cm` : 'Unavailable'}</strong>
           </div>
-          <p className="mt-2 text-xs text-cyan-200/60">This is the gap from the ultrasonic sensor to the feed surface. A larger gap means less feed. The percentage uses an approximate 20 cm full / 32 cm low calibration.</p>
+          <p className="mt-2 text-xs text-cyan-200/60">This is the gap from the ultrasonic sensor to the feed surface. A larger gap means less feed. 5 cm is full; {state.hopperEmptyDistanceCm} cm is empty. Change the empty distance in Hardware Controls.</p>
         </div>
         <div className="metric-card-modern">
           <div className="flex items-center justify-between mb-4">

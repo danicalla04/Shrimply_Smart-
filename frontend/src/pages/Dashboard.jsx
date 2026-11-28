@@ -645,7 +645,7 @@ const Dashboard = () => {
   ]
 
   const feederOnline = isFeederTelemetryFresh(feederTel?.timestamp, nowTs)
-  const feedPct = feederOnline ? hopperPercentFromDistance(feederTel?.distance_cm) : null
+  const feedPct = feederOnline ? hopperPercentFromDistance(feederTel?.distance_cm, feederSnap?.hopperEmptyDistanceCm) : null
   const insights = []
   if (!sensorOnline) insights.push(`Water quality sensors are disconnected. No live packet from WeMos for ${formatOfflineDuration(sensorAgeMs)}.`)
   else {

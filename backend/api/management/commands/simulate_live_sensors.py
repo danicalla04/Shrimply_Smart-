@@ -6,11 +6,9 @@ import time
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from api.models import FeederTelemetry, SensorReading
+from api.feeder_level import DEFAULT_HOPPER_EMPTY_CM, HOPPER_FULL_CM, hopper_percent
+from api.models import Feeder, FeederTelemetry, SensorReading
 
-# 20 cm = 100% full, 32 cm = 10%
-HOPPER_FULL_CM = 20.0
-HOPPER_TEN_PERCENT_CM = 32.0
 ULTRASONIC_EVERY_SEC = 300
 INSERT_EVERY_SEC = 600
 
@@ -18,12 +16,6 @@ INSERT_EVERY_SEC = 600
 def _step(value, step, low, high):
     nxt = value + random.choice((-step, step))
     return round(max(low, min(high, nxt)), 2 if step < 1 else 1)
-
-
-def _hopper_percent(distance):
-    span = HOPPER_TEN_PERCENT_CM - HOPPER_FULL_CM
-    pct = 100 + ((distance - HOPPER_FULL_CM) * (10 - 100)) / span
-    return max(0, min(100, int(round(pct))))
 
 
 class Command(BaseCommand):
@@ -48,7 +40,9 @@ class Command(BaseCommand):
         ph = 7.40
         turbidity = 8.0
         tds = 240
-        distance = 24.0
+        feeder = Feeder.objects.first()
+        empty_distance = feeder.hopper_empty_distance_cm if feeder else DEFAULT_HOPPER_EMPTY_CM
+        distance = min(24.0, empty_distance)
         started = time.monotonic()
         last_ultrasonic = started
         last_insert = started
@@ -69,7 +63,7 @@ class Command(BaseCommand):
             f'One live reading updates every {interval:.0f}s. '
             f'A new database row is inserted every {INSERT_EVERY_SEC // 60} min. '
             f'Ultrasonic value changes every {ULTRASONIC_EVERY_SEC // 60} min. '
-            f'20 cm = 100%, 32 cm = 10%. Ctrl+C to stop.'
+            f'5 cm = 100%, {empty_distance:g} cm = 0%. Ctrl+C to stop.'
         ))
         try:
             while True:
@@ -80,7 +74,9 @@ class Command(BaseCommand):
                 tds = int(_step(tds, 1, 150, 320))
 
                 if time.monotonic() - last_ultrasonic >= ULTRASONIC_EVERY_SEC:
-                    distance = _step(distance, 0.5, HOPPER_FULL_CM, 36.0)
+                    feeder = Feeder.objects.first()
+                    empty_distance = feeder.hopper_empty_distance_cm if feeder else DEFAULT_HOPPER_EMPTY_CM
+                    distance = _step(distance, 0.5, HOPPER_FULL_CM, empty_distance)
                     last_ultrasonic = time.monotonic()
 
                 reading.temperature = round(temperature, 1)
@@ -129,7 +125,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f'[{now.strftime("%H:%M:%S")}] {action}  T={reading.temperature}C  pH={reading.ph}  '
                     f'NTU={reading.turbidity}  TDS={reading.tds}  '
-                    f'ultrasonic={distance:.1f}cm (~{_hopper_percent(distance)}%)'
+                    f'ultrasonic={distance:.1f}cm (~{hopper_percent(distance, empty_distance)}%)'
                 )
                 self.stdout.flush()
                 if once:

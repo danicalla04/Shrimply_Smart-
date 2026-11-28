@@ -12,6 +12,7 @@ export const DEFAULT_FEEDER_STATE = {
   feedRateGramsPerMinute: DEFAULT_FEED_RATE_GRAMS_PER_MINUTE,
   capacityMax: 1000,
   capacityCurrent: 1000,
+  hopperEmptyDistanceCm: 43.5,
   lowPercent: 15,
   nextFeedAt: null,
   lastFedAt: null,
@@ -258,6 +259,7 @@ function normalizeFeederData(data) {
     feedRateGramsPerMinute: data.feed_rate_grams_per_minute ?? DEFAULT_FEED_RATE_GRAMS_PER_MINUTE,
     capacityMax: data.capacity_max || 1000,
     capacityCurrent: data.capacity_current ?? 1000,
+    hopperEmptyDistanceCm: data.hopper_empty_distance_cm ?? 43.5,
     lowPercent: data.low_percent || 15,
     nextFeedAt: data.next_feed_at,
     lastFedAt: data.last_fed_at,
@@ -300,16 +302,17 @@ export function capacityPercent(state) {
   return Math.max(0, Math.min(100, Math.round((current / max) * 100)));
 }
 
-/** Ultrasonic hopper map: 20 cm = full, 32 cm = 10% (low-feed alert). */
-export const HOPPER_FULL_CM = 20
-export const HOPPER_TEN_PERCENT_CM = 32
+/** Ultrasonic hopper calibration: 5 cm is full; the empty distance is saved on the feeder. */
+export const HOPPER_FULL_CM = 5
+export const DEFAULT_HOPPER_EMPTY_CM = 43.5
 export const FEEDER_TELEMETRY_STALE_MS = 150_000
 
-export function hopperPercentFromDistance(distanceCm) {
+export function hopperPercentFromDistance(distanceCm, emptyDistanceCm = DEFAULT_HOPPER_EMPTY_CM) {
+  if (distanceCm == null || distanceCm === '') return null
   const d = Number(distanceCm)
-  if (!Number.isFinite(d)) return null
-  const span = HOPPER_TEN_PERCENT_CM - HOPPER_FULL_CM
-  const pct = 100 + ((d - HOPPER_FULL_CM) * (10 - 100)) / span
+  const empty = Number(emptyDistanceCm)
+  if (!Number.isFinite(d) || d < 0 || !Number.isFinite(empty) || empty <= HOPPER_FULL_CM) return null
+  const pct = ((empty - d) * 100) / (empty - HOPPER_FULL_CM)
   return Math.max(0, Math.min(100, Math.round(pct)))
 }
 

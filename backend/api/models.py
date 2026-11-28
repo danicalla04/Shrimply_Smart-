@@ -285,6 +285,7 @@ class Feeder(models.Model):
     feed_rate_grams_per_minute = models.FloatField(default=1207.5)
     capacity_max = models.IntegerField(default=1000)
     capacity_current = models.IntegerField(default=1000)
+    hopper_empty_distance_cm = models.FloatField(default=43.5)
     low_percent = models.IntegerField(default=15)
     next_feed_at = models.DateTimeField(null=True, blank=True)
     last_fed_at = models.DateTimeField(null=True, blank=True)

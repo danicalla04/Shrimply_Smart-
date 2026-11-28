@@ -237,9 +237,9 @@ class HardwareStatusTests(APITestCase):
         from .models import Feeder, FeederTelemetry
         self.client.force_authenticate(self.admin)
         feeder = Feeder.objects.create(capacity_current=0, low_percent=15)
-        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=31.2)
+        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=37.4)
         self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
-        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=31.33)
+        FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=37.7)
         self.assertEqual((self.status()['color'], self.status()['buzzer'], self.status()['feeder_percent']), ('RED', 'ON', 15))
         FeederTelemetry.objects.create(device_id='wemos-feeder', distance_cm=25)
         self.assertEqual((self.status()['color'], self.status()['buzzer']), ('BLUE', 'OFF'))
@@ -886,7 +886,7 @@ class RangeAlertRecoveryTests(APITestCase):
     def test_feeder_level_recovers_only_below_low_distance(self):
         from .models import FeederTelemetry
         alert = self.alert('feeder_level', 35)
-        for distance in (None, 32, 35):
+        for distance in (None, 40, 43.5):
             FeederTelemetry.objects.create(distance_cm=distance)
             alert.refresh_from_db()
             self.assertFalse(alert.resolved)
@@ -900,17 +900,17 @@ class RangeAlertRecoveryTests(APITestCase):
         from .alert_service import AlertService
         from .models import FeederTelemetry, Alert
         with patch.object(AlertService, 'notify_alert_async'):
-            FeederTelemetry.objects.create(distance_cm=31.2)
+            FeederTelemetry.objects.create(distance_cm=37.4)
             self.assertFalse(AlertService.check_feeder_level())
-            FeederTelemetry.objects.create(distance_cm=31.33)
+            FeederTelemetry.objects.create(distance_cm=37.7)
             created = AlertService.check_feeder_level()
             self.assertEqual(len(created), 1)
             self.assertEqual((created[0].severity, created[0].value), ('critical', 15))
             self.assertEqual(Alert.objects.filter(parameter='feeder_level', resolved=False).count(), 1)
-            FeederTelemetry.objects.create(distance_cm=31.5)
+            FeederTelemetry.objects.create(distance_cm=38)
             self.assertFalse(AlertService.check_feeder_level())
             self.assertEqual(Alert.objects.filter(parameter='feeder_level', resolved=False).count(), 1)
-            FeederTelemetry.objects.create(distance_cm=31.2)
+            FeederTelemetry.objects.create(distance_cm=37.4)
             self.assertFalse(AlertService.check_feeder_level())
             self.assertFalse(Alert.objects.filter(parameter='feeder_level', resolved=False).exists())
 
@@ -918,7 +918,7 @@ class RangeAlertRecoveryTests(APITestCase):
         from unittest.mock import patch
         from .alert_service import AlertService
         from .models import FeederTelemetry, Alert
-        FeederTelemetry.objects.create(distance_cm=31.33)
+        FeederTelemetry.objects.create(distance_cm=37.7)
         with patch.object(AlertService, 'notify_alert_async'):
             response = self.client.get('/api/alerts/active/')
         self.assertEqual(response.status_code, 200)
@@ -937,6 +937,36 @@ class RangeAlertRecoveryTests(APITestCase):
         alert.refresh_from_db()
         self.assertTrue(alert.resolved)
         self.assertEqual(alert.value, 10)
+
+
+class FeederCalibrationTests(APITestCase):
+    def setUp(self):
+        from .models import Feeder
+        self.feeder = Feeder.objects.create()
+        self.client.force_authenticate(User.objects.create_user('feeder_calibration_admin', is_staff=True))
+
+    def test_saved_empty_distance_changes_shared_level_calculation(self):
+        from .feeder_level import hopper_percent
+
+        self.assertEqual(hopper_percent(5), 100)
+        self.assertEqual(hopper_percent(43.5), 0)
+        response = self.client.post('/api/feeder/update_settings/', {
+            'hopper_empty_distance_cm': 35,
+        }, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.feeder.refresh_from_db()
+        self.assertEqual(self.feeder.hopper_empty_distance_cm, 35)
+        self.assertEqual(hopper_percent(5), 100)
+        self.assertEqual(hopper_percent(20), 50)
+        self.assertEqual(hopper_percent(35), 0)
+
+    def test_empty_distance_must_exceed_full_distance(self):
+        for value in (5, 0, 'invalid', 401):
+            with self.subTest(value=value):
+                response = self.client.post('/api/feeder/update_settings/', {
+                    'hopper_empty_distance_cm': value,
+                }, format='json')
+                self.assertEqual(response.status_code, 400)
 
 
 class FeederDailyPortionTests(APITestCase):

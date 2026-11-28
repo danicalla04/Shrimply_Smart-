@@ -1226,6 +1226,7 @@ class FeederViewSet(viewsets.ModelViewSet):
 
             # Update fields if provided
             for field in ['interval_minutes', 'portion_grams', 'capacity_max', 'low_percent',
+                         'hopper_empty_distance_cm',
                          'schedule_type', 'daily_schedule', 'daily_portions_grams', 'feed_rate_grams_per_minute',
                          'today_feed_plan', 'weather_adaptation',
                          'rain_reduction_percent', 'heat_increase_percent', 'extreme_weather_pause',
@@ -1244,6 +1245,13 @@ class FeederViewSet(viewsets.ModelViewSet):
                         value = float(value)
                         if not math.isfinite(value) or not 0 < value <= 10000:
                             return Response({'error': 'Feed rate must be greater than 0 and at most 10000 g/min.'}, status=400)
+                    elif field == 'hopper_empty_distance_cm':
+                        try:
+                            value = float(value)
+                        except (TypeError, ValueError):
+                            return Response({'error': '0% distance must be a number greater than 5 cm.'}, status=400)
+                        if not math.isfinite(value) or not 5 < value <= 400:
+                            return Response({'error': '0% distance must be greater than 5 cm and at most 400 cm.'}, status=400)
                     elif field in ['daily_schedule', 'daily_portions_grams', 'today_feed_plan'] and isinstance(value, str):
                         # Parse JSON string if needed
                         import json

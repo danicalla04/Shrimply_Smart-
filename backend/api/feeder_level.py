@@ -7,22 +7,32 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from .feeder_live import LIVE_MAX_AGE_SECONDS, latest_feeder_sample
+from .models import Feeder
 
 
-HOPPER_FULL_CM = 20.0
-HOPPER_TEN_PERCENT_CM = 32.0
+HOPPER_FULL_CM = 5.0
+DEFAULT_HOPPER_EMPTY_CM = 43.5
 LOW_FEED_PERCENT = 15.0
 TELEMETRY_MAX_AGE_SECONDS = LIVE_MAX_AGE_SECONDS
 
 
-def hopper_percent(distance_cm):
+def hopper_percent(distance_cm, empty_distance_cm=None):
     try:
         distance = float(distance_cm)
     except (TypeError, ValueError):
         return None
     if not math.isfinite(distance) or distance < 0:
         return None
-    percent = 100 + (distance - HOPPER_FULL_CM) * (10 - 100) / (HOPPER_TEN_PERCENT_CM - HOPPER_FULL_CM)
+    if empty_distance_cm is None:
+        feeder = Feeder.objects.first()
+        empty_distance_cm = feeder.hopper_empty_distance_cm if feeder else DEFAULT_HOPPER_EMPTY_CM
+    try:
+        empty_distance_cm = float(empty_distance_cm)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(empty_distance_cm) or empty_distance_cm <= HOPPER_FULL_CM:
+        return None
+    percent = (empty_distance_cm - distance) * 100 / (empty_distance_cm - HOPPER_FULL_CM)
     return max(0, min(100, round(percent)))
 
 

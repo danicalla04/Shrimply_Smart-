@@ -4,7 +4,7 @@ import { usePrivileges } from '../context/PrivilegesContext'
 import { authService } from '../services/auth'
 import API_BASE from '../services/apiConfig'
 import { wemosApi } from '../services/wemos'
-import { FEEDER_TELEMETRY_STALE_MS, hopperPercentFromDistance } from '../services/feeder'
+import { DEFAULT_HOPPER_EMPTY_CM, FEEDER_TELEMETRY_STALE_MS, fetchFeederState, hopperPercentFromDistance, updateFeederSettings } from '../services/feeder'
 
 const OUTPUTS = [
   { target: 'LED1', label: 'Blue LED', pin: 'D9' },
@@ -29,6 +29,8 @@ export default function HardwareControls() {
   const [lastRequest, setLastRequest] = useState({})
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [emptyDistanceCm, setEmptyDistanceCm] = useState(DEFAULT_HOPPER_EMPTY_CM)
+  const [emptyDistanceDraft, setEmptyDistanceDraft] = useState(String(DEFAULT_HOPPER_EMPTY_CM))
 
   useEffect(() => {
     if (!isAdmin || username !== 'admin123') return
@@ -59,6 +61,14 @@ export default function HardwareControls() {
     return () => { active = false; clearInterval(timer) }
   }, [isAdmin, username])
 
+  useEffect(() => {
+    if (!isAdmin || username !== 'admin123') return
+    fetchFeederState().then((feeder) => {
+      setEmptyDistanceCm(feeder.hopperEmptyDistanceCm)
+      setEmptyDistanceDraft(String(feeder.hopperEmptyDistanceCm))
+    }).catch(() => setError('Could not load feeder calibration.'))
+  }, [isAdmin, username])
+
   if (!loaded) return <p className="p-6" role="status">Checking hardware access...</p>
   if (!isAdmin || username !== 'admin123') return <Navigate to="/dashboard" replace />
 
@@ -66,7 +76,7 @@ export default function HardwareControls() {
   const online = Number.isFinite(age) && age >= -5000 && age <= FEEDER_TELEMETRY_STALE_MS
   const distance = Number(telemetry?.distance_cm)
   const capacity = online && telemetry?.distance_cm != null && Number.isFinite(distance)
-    ? hopperPercentFromDistance(distance) : null
+    ? hopperPercentFromDistance(distance, emptyDistanceCm) : null
   const reportAge = outputReport?.reported_at ? now - new Date(outputReport.reported_at).getTime() : Infinity
   const reportLive = Number.isFinite(reportAge) && reportAge >= -5000 && reportAge <= 15000
   const outputMismatch = reportLive && outputReport.mode === 'AUTO' && sensorStatus &&
@@ -102,6 +112,28 @@ export default function HardwareControls() {
       setMessage(`Servo ${state ? 'ON (L45)' : 'OFF (R45)'} queued. Watch the servo to confirm movement.`)
     } catch (err) {
       setError(err.message || 'Could not send servo command.')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const saveEmptyDistance = async (event) => {
+    event.preventDefault()
+    const value = Number(emptyDistanceDraft)
+    if (!Number.isFinite(value) || value <= 5 || value > 400) {
+      setError('Enter a 0% distance greater than 5 cm and at most 400 cm.')
+      return
+    }
+    setBusy('CALIBRATION')
+    setError('')
+    setMessage('')
+    try {
+      const feeder = await updateFeederSettings({ hopper_empty_distance_cm: value })
+      setEmptyDistanceCm(feeder.hopperEmptyDistanceCm)
+      setEmptyDistanceDraft(String(feeder.hopperEmptyDistanceCm))
+      setMessage(`Feeder calibration saved: 5 cm = 100%, ${feeder.hopperEmptyDistanceCm} cm = 0%.`)
+    } catch (err) {
+      setError(err.message || 'Could not save feeder calibration.')
     } finally {
       setBusy('')
     }
@@ -155,6 +187,18 @@ export default function HardwareControls() {
 
       <section className="card p-5">
         <h2 className="text-xl font-semibold mb-4">Receiver and feeder</h2>
+        <form onSubmit={saveEmptyDistance} className="mb-5 rounded-xl border border-slate-500/30 p-4">
+          <h3 className="font-semibold mb-2">Feeder level calibration</h3>
+          <p className="text-sm text-slate-400 mb-3">5 cm is always 100%. Enter the ultrasonic distance measured when the feeder should read 0%.</p>
+          <label htmlFor="hopper-empty-distance" className="block text-sm mb-2">Distance at 0% (cm)</label>
+          <div className="flex flex-wrap gap-3 items-center">
+            <input id="hopper-empty-distance" type="number" min="5.1" max="400" step="0.1" required
+              value={emptyDistanceDraft} onChange={(event) => setEmptyDistanceDraft(event.target.value)}
+              className="w-36 rounded-lg border border-slate-400 bg-slate-950 px-3 py-2 text-white" />
+            <button type="submit" className="btn-modern" disabled={Boolean(busy)}>Save calibration</button>
+            <span className="text-sm text-slate-400">Current: 5 cm = 100%, {emptyDistanceCm} cm = 0%</span>
+          </div>
+        </form>
         <div className="grid gap-4 sm:grid-cols-3 mb-5">
           <div><span className="text-sm text-slate-400">Wemos status</span><p className="font-semibold">{online ? 'Online' : 'Offline or stale telemetry'}</p></div>
           <div><span className="text-sm text-slate-400">Ultrasonic distance</span><p className="font-semibold">{capacity == null ? 'Unavailable' : `${distance.toFixed(1)} cm · ${capacity}%`}</p></div>
