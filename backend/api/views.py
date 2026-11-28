@@ -1295,29 +1295,26 @@ class FeederViewSet(viewsets.ModelViewSet):
 
             now = timezone.now()
             if feeder.auto_enabled and feeder.next_feed_at and now >= feeder.next_feed_at:
-                if feeder.capacity_current > 0:
-                    # Auto-feed uses configured input amount (ML recommendation is separate UI/API).
-                    portion = float(feeder.portion_for_due_feed(feeder.next_feed_at))
-                    portion = min(portion, feeder.capacity_current)
+                # The level is an estimate. Keep the timed servo command active at 0%.
+                portion = float(feeder.portion_for_due_feed(feeder.next_feed_at))
+                capacity_before = feeder.capacity_current
+                feeder.capacity_current = max(0, feeder.capacity_current - portion)
+                feeder.last_fed_at = now
+                feeder.next_feed_at = feeder.get_next_feed_time()
+                feeder.save()
 
-                    capacity_before = feeder.capacity_current
-                    feeder.capacity_current -= portion
-                    feeder.last_fed_at = now
-                    feeder.next_feed_at = feeder.get_next_feed_time()
-                    feeder.save()
+                _maybe_alert_feeder_capacity_low(feeder)
 
-                    _maybe_alert_feeder_capacity_low(feeder)
-
-                    FeedingLog.objects.create(
-                        feeder=feeder,
-                        feed_type='scheduled',
-                        portion_grams=portion,
-                        capacity_before=capacity_before,
-                        capacity_after=feeder.capacity_current,
-                        weather_conditions=None,
-                        notes=f'Auto feeding: {portion}g',
-                    )
-                    enqueue_servo_job(target_grams=portion, on_at=now, device_id="wemos-poller")
+                FeedingLog.objects.create(
+                    feeder=feeder,
+                    feed_type='scheduled',
+                    portion_grams=portion,
+                    capacity_before=capacity_before,
+                    capacity_after=feeder.capacity_current,
+                    weather_conditions=None,
+                    notes=f'Auto feeding command: {portion}g requested; hopper estimate was {capacity_before}g',
+                )
+                enqueue_servo_job(target_grams=portion, on_at=now, device_id="wemos-poller")
 
             serializer = self.get_serializer(feeder)
             return Response(serializer.data)

@@ -121,9 +121,6 @@ def ensure_next_servo_job_seeded(*, device_id: str = "wemos-poller") -> Optional
 
     if not feeder.auto_enabled:
         return None
-    if feeder.capacity_current <= 0:
-        return None
-
     now = timezone.now()
 
     # If we already have a future job queued, don't add another.
@@ -156,7 +153,7 @@ def ensure_next_servo_job_seeded(*, device_id: str = "wemos-poller") -> Optional
 
     # Seed a scheduled job.
     return enqueue_servo_job(
-        target_grams=min(feeder.portion_for_due_feed(next_on_at), feeder.capacity_current),
+        target_grams=feeder.portion_for_due_feed(next_on_at),
         on_at=next_on_at,
         device_id=device_id,
         calibration_grams_30s=feeder.feed_rate_grams_per_minute / 2,

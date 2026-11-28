@@ -207,10 +207,26 @@ export default function Feeding() {
     const kg = Number(portionDraft);
     if (!Number.isFinite(kg) || kg <= 0) { flash('Enter a positive portion in kg'); return; }
     try {
-      const updated = await updateFeederSettings({ portion_grams: kgInputToGrams(kg) });
+      const grams = kgInputToGrams(kg);
+      const settings = { portion_grams: grams };
+      if (state.scheduleType === 'daily') {
+        const times = state.dailySchedule || [];
+        settings.daily_portions_grams = Object.fromEntries(times.map((time) => [time, grams]));
+        if (todayPlan) {
+          const slots = Object.fromEntries(times.map((time) => [time, kg]));
+          settings.today_feed_plan = {
+            ...todayPlan,
+            slots_kg: slots,
+            times,
+            total_kg: Math.round(kg * times.length * 1000) / 1000,
+          };
+        }
+      }
+      const updated = await updateFeederSettings(settings);
       setState(updated);
+      if (settings.today_feed_plan) setTodayPlan(settings.today_feed_plan);
       setPortionDraft(String(gramsToKgInput(updated.portionGrams)));
-      flash('Default portion saved', 'success');
+      flash(state.scheduleType === 'daily' ? 'Portion saved for all daily times' : 'Default portion saved', 'success');
     } catch (error) { flash(error.message || 'Could not save portion'); }
   };
 
@@ -804,8 +820,8 @@ export default function Feeding() {
           <div className="relative z-10 flex items-center gap-4">
             <div className="text-5xl">⚠️</div>
             <div>
-              <h2 className="text-2xl font-bold text-white mb-1">{t('feedStorageEmpty') || 'Feed Storage Empty'}</h2>
-              <p className="text-red-50 text-base">{t('feedStorageEmptyMsg') || 'Your feed storage is empty. Please refill the feeder to continue automatic feeding.'}</p>
+              <h2 className="text-2xl font-bold text-white mb-1">Feed storage empty</h2>
+              <p className="text-red-50 text-base">Refill the feeder to dispense food. Automatic feeding times will still command the servo at 0%.</p>
             </div>
             <button
               disabled={!privileges.update} onClick={async () => {
@@ -819,7 +835,7 @@ export default function Feeding() {
               }}
               className="ml-auto px-6 py-3 bg-white text-red-600 font-bold rounded-xl hover:bg-red-50 transition-all shadow-lg whitespace-nowrap"
             >
-              🔄 {t('refillNow') || 'Refill Now'}
+              🔄 Refill Now
             </button>
           </div>
         </div>
@@ -1009,7 +1025,7 @@ export default function Feeding() {
                         onBlur={savePortionDraft}
                         min={0.001}
                       />
-                      <p className="text-xs text-slate-500 mt-1">New times use this amount. Click a time to set a different amount. Saves when you leave this field.</p>
+                      <p className="text-xs text-slate-500 mt-1">Saving this amount updates every daily time. Click a time afterward to set a different amount. Saves when you leave this field.</p>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -1027,8 +1043,19 @@ export default function Feeding() {
                             if (!next || !next.trim()) return;
                             if (currentTimes.includes(next)) { flash('This time is already in the schedule'); return; }
                             const newSchedule = [...currentTimes, next].sort();
-                            const updatedState = await updateFeederSettings({ schedule_type: 'daily', daily_schedule: newSchedule });
+                            const dailyPortions = { ...(state.dailyPortionsGrams || {}), [next]: kgInputToGrams(portionDraft) };
+                            const plan = todayPlan ? {
+                              ...todayPlan,
+                              slots_kg: { ...(todayPlan.slots_kg || {}), [next]: gramsToKgInput(dailyPortions[next]) },
+                              times: newSchedule,
+                              total_kg: Math.round(newSchedule.reduce((total, time) => total + Number(dailyPortions[time] ?? state.portionGrams) / 1000, 0) * 1000) / 1000,
+                            } : null;
+                            const updatedState = await updateFeederSettings({
+                              schedule_type: 'daily', daily_schedule: newSchedule, daily_portions_grams: dailyPortions,
+                              ...(plan ? { today_feed_plan: plan } : {}),
+                            });
                             setState(updatedState);
+                            if (plan) setTodayPlan(plan);
                             flash(`${next} added using Portion per Feed`, 'success');
                           } catch (error) {
                             console.error('Failed to add time:', error);

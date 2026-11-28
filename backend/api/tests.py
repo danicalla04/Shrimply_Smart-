@@ -999,6 +999,53 @@ class FeederDailyPortionTests(APITestCase):
         enqueue.assert_called_once()
         self.assertEqual(enqueue.call_args.kwargs['target_grams'], 20000)
 
+    def test_due_daily_feed_commands_servo_at_zero_estimated_capacity(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from django.utils import timezone
+        from .models import FeedingLog
+
+        due_at = timezone.localtime(timezone.now()).replace(hour=4, minute=30, second=0, microsecond=0)
+        if due_at > timezone.now():
+            due_at -= timedelta(days=1)
+        self.feeder.auto_enabled = True
+        self.feeder.next_feed_at = due_at
+        self.feeder.capacity_current = 0
+        self.feeder.save()
+
+        with patch('api.views.enqueue_servo_job') as enqueue:
+            response = self.client.get('/api/feeder/process_auto_feed/')
+
+        self.assertEqual(response.status_code, 200)
+        self.feeder.refresh_from_db()
+        self.assertEqual(self.feeder.capacity_current, 0)
+        self.assertGreater(self.feeder.next_feed_at, timezone.now())
+        self.assertEqual(FeedingLog.objects.get(feeder=self.feeder).portion_grams, 20000)
+        self.assertEqual(enqueue.call_args.kwargs['target_grams'], 20000)
+
+    def test_auto_feed_command_commands_servo_at_zero_estimated_capacity(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from django.core.management import call_command
+        from django.utils import timezone
+        from .models import FeedingLog
+
+        due_at = timezone.localtime(timezone.now()).replace(hour=4, minute=30, second=0, microsecond=0)
+        if due_at > timezone.now():
+            due_at -= timedelta(days=1)
+        self.feeder.auto_enabled = True
+        self.feeder.next_feed_at = due_at
+        self.feeder.capacity_current = 0
+        self.feeder.save()
+
+        with patch('api.management.commands.process_auto_feeds.enqueue_servo_job') as enqueue:
+            call_command('process_auto_feeds')
+
+        self.feeder.refresh_from_db()
+        self.assertEqual(self.feeder.capacity_current, 0)
+        self.assertEqual(FeedingLog.objects.get(feeder=self.feeder).portion_grams, 20000)
+        self.assertEqual(enqueue.call_args.kwargs['target_grams'], 20000)
+
     def test_dispense_summary_excludes_plan_and_hardware_test(self):
         from .models import FeedingLog
         for grams, notes in [(150, 'Manual feeding'), (25, 'Auto feeding'), (999, 'Applied ML today feed plan: 0.999 kg'), (500, 'Servo feed: test')]:

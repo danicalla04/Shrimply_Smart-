@@ -28,10 +28,6 @@ class Command(BaseCommand):
             return
 
         for feeder in feeders:
-            if feeder.capacity_current <= 0:
-                self.stdout.write(self.style.WARNING(f'Feeder {feeder.id}: empty — skipping'))
-                continue
-
             # Weather check
             weather_data = None
             if feeder.weather_adaptation:
@@ -46,10 +42,8 @@ class Command(BaseCommand):
 
             # Calculate portion
             portion = feeder.adjust_portion_for_weather(feeder.portion_for_due_feed(feeder.next_feed_at), weather_data)
-            portion = min(portion, feeder.capacity_current)
-
             capacity_before = feeder.capacity_current
-            feeder.capacity_current -= portion
+            feeder.capacity_current = max(0, feeder.capacity_current - portion)
             feeder.last_fed_at = now
             feeder.next_feed_at = feeder.get_next_feed_time()
             feeder.save()
@@ -62,13 +56,13 @@ class Command(BaseCommand):
                 capacity_before=capacity_before,
                 capacity_after=feeder.capacity_current,
                 weather_conditions=weather_data,
-                notes=f'Auto ({feed_type}): {portion}g dispensed',
+                notes=f'Auto ({feed_type}): {portion}g requested; hopper estimate was {capacity_before}g',
             )
 
             # Schedule servo ON now and OFF after computed duration.
             enqueue_servo_job(target_grams=portion, on_at=now, device_id="wemos-poller")
 
             self.stdout.write(self.style.SUCCESS(
-                f'Feeder {feeder.id}: dispensed {portion}g ({feed_type}) — '
+                f'Feeder {feeder.id}: requested {portion}g ({feed_type}) — '
                 f'{feeder.capacity_current}g remaining'
             ))

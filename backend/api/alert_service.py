@@ -21,6 +21,21 @@ import math
 logger = logging.getLogger('alert_service')
 logger.setLevel(logging.DEBUG)
 
+
+def format_alert_age(age_seconds):
+    """Use short, readable units for the age embedded in alert messages."""
+    seconds = max(0, int(age_seconds))
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, remainder = divmod(remainder, 60)
+    if days:
+        return f'{days}d {hours}hr' if hours else f'{days}d'
+    if hours:
+        return f'{hours}hr {minutes}min' if minutes else f'{hours}hr'
+    if minutes:
+        return f'{minutes}min'
+    return f'{remainder}s'
+
 # Add console handler if not already present
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -508,7 +523,7 @@ class AlertService:
             when_str = timezone.localtime(latest.timestamp).strftime('%Y-%m-%d %H:%M:%S')
             msg = (
                 f'Feeder device offline — ultrasonic disconnected. '
-                f'Last saved history at {when_str} ({age_sec:.0f}s ago).'
+                f'Last saved history at {when_str} ({format_alert_age(age_sec)} ago).'
             )
 
         # Keep a single open alert; just refresh its timestamp/message.
@@ -672,7 +687,7 @@ class AlertService:
         if age_sec >= AlertService.STALE_READING_SECONDS:
             alert = AlertService._create_offline_alert(
                 f'Sensor stream offline / stale. Last reading at {when_str} '
-                f'({age_sec:.0f}s ago). Check WeMos WiFi and HTTP upload.'
+                f'({format_alert_age(age_sec)} ago). Check WeMos WiFi and HTTP upload.'
             )
             if alert:
                 created.append(alert)
